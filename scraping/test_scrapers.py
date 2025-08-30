@@ -506,7 +506,7 @@ SECRET_KEY = "django-insecure-abc123def456ghi789jkl"
 DATABASE_URL = "postgresql://admin:password123@db.company.com:5432/app_prod"
 
 # API Keys
-STRIPE_SECRET_KEY = "sk_test_1234567890abcdefghijklmnop"
+STRIPE_SECRET_KEY = "test_stripe_key_placeholder"
 AWS_ACCESS_KEY_ID = "AKIAIOSFODNN7EXAMPLE"
 AWS_SECRET_ACCESS_KEY = "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"
 
