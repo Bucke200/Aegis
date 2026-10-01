@@ -14,6 +14,73 @@ from shared.config import settings
 from shared.logging_config import logger
 
 
+def _convert_tweet_data(tweet) -> Dict[str, Any]:
+    """Convert Twitter tweet to standardized format"""
+    
+    # Handle different tweet object types
+    if hasattr(tweet, 'data'):
+        tweet_data = tweet.data
+    else:
+        tweet_data = tweet
+    
+    # Extract basic information
+    post_data = {
+        'post_id': str(tweet_data.id),
+        'author_id': str(tweet_data.author_id) if hasattr(tweet_data, 'author_id') else 'unknown',
+        'author_username': getattr(tweet_data, 'username', 'unknown'),
+        'author_display_name': getattr(tweet_data, 'name', 'unknown'),
+        'content': tweet_data.text,
+        'created_at': tweet_data.created_at or datetime.utcnow(),
+        'url': f"https://twitter.com/i/status/{tweet_data.id}",
+        'language': getattr(tweet_data, 'lang', None)
+    }
+    
+    # Extract metrics if available
+    if hasattr(tweet_data, 'public_metrics'):
+        metrics = tweet_data.public_metrics
+        post_data.update({
+            'likes': metrics.get('like_count', 0),
+            'shares': metrics.get('retweet_count', 0),
+            'comments': metrics.get('reply_count', 0),
+            'views': metrics.get('impression_count', 0)
+        })
+    
+    # Extract entities
+    if hasattr(tweet_data, 'entities'):
+        entities = tweet_data.entities
+        
+        # Hashtags
+        if 'hashtags' in entities:
+            post_data['hashtags'] = [tag['tag'] for tag in entities['hashtags']]
+        
+        # Mentions
+        if 'mentions' in entities:
+            post_data['mentions'] = [mention['username'] for mention in entities['mentions']]
+        
+        # URLs
+        if 'urls' in entities:
+            post_data['media_urls'] = [url['expanded_url'] for url in entities['urls']]
+    
+    # Extract author information if available
+    if hasattr(tweet, 'includes') and tweet.includes and 'users' in tweet.includes:
+        for user in tweet.includes['users']:
+            if str(user.id) == post_data['author_id']:
+                post_data.update({
+                    'author_username': user.username,
+                    'author_display_name': user.name,
+                    'author_followers': getattr(user, 'public_metrics', {}).get('followers_count', 0),
+                    'author_verified': getattr(user, 'verified', False),
+                    'author_created_at': getattr(user, 'created_at', None)
+                })
+                break
+    
+    # Extract location if available
+    if hasattr(tweet_data, 'geo') and tweet_data.geo:
+        post_data['location'] = str(tweet_data.geo)
+    
+    return post_data
+
+
 class TwitterStreamListener(tweepy.asynchronous.AsyncStreamingClient):
     """Custom Twitter streaming client"""
     
@@ -29,7 +96,7 @@ class TwitterStreamListener(tweepy.asynchronous.AsyncStreamingClient):
                 return
             
             # Convert tweet to our format
-            tweet_data = self._convert_tweet_data(tweet)
+            tweet_data = _convert_tweet_data(tweet)
             
             # Call the callback
             await self.callback(tweet_data)
@@ -44,72 +111,6 @@ class TwitterStreamListener(tweepy.asynchronous.AsyncStreamingClient):
             logger.warning("Twitter streaming rate limited")
             return False  # Disconnect
         return True  # Continue
-    
-    def _convert_tweet_data(self, tweet) -> Dict[str, Any]:
-        """Convert Twitter tweet to standardized format"""
-        
-        # Handle different tweet object types
-        if hasattr(tweet, 'data'):
-            tweet_data = tweet.data
-        else:
-            tweet_data = tweet
-        
-        # Extract basic information
-        post_data = {
-            'post_id': str(tweet_data.id),
-            'author_id': str(tweet_data.author_id) if hasattr(tweet_data, 'author_id') else 'unknown',
-            'author_username': getattr(tweet_data, 'username', 'unknown'),
-            'author_display_name': getattr(tweet_data, 'name', 'unknown'),
-            'content': tweet_data.text,
-            'created_at': tweet_data.created_at or datetime.utcnow(),
-            'url': f"https://twitter.com/i/status/{tweet_data.id}",
-            'language': getattr(tweet_data, 'lang', None)
-        }
-        
-        # Extract metrics if available
-        if hasattr(tweet_data, 'public_metrics'):
-            metrics = tweet_data.public_metrics
-            post_data.update({
-                'likes': metrics.get('like_count', 0),
-                'shares': metrics.get('retweet_count', 0),
-                'comments': metrics.get('reply_count', 0),
-                'views': metrics.get('impression_count', 0)
-            })
-        
-        # Extract entities
-        if hasattr(tweet_data, 'entities'):
-            entities = tweet_data.entities
-            
-            # Hashtags
-            if 'hashtags' in entities:
-                post_data['hashtags'] = [tag['tag'] for tag in entities['hashtags']]
-            
-            # Mentions
-            if 'mentions' in entities:
-                post_data['mentions'] = [mention['username'] for mention in entities['mentions']]
-            
-            # URLs
-            if 'urls' in entities:
-                post_data['media_urls'] = [url['expanded_url'] for url in entities['urls']]
-        
-        # Extract author information if available
-        if hasattr(tweet, 'includes') and 'users' in tweet.includes:
-            for user in tweet.includes['users']:
-                if str(user.id) == post_data['author_id']:
-                    post_data.update({
-                        'author_username': user.username,
-                        'author_display_name': user.name,
-                        'author_followers': getattr(user, 'public_metrics', {}).get('followers_count', 0),
-                        'author_verified': getattr(user, 'verified', False),
-                        'author_created_at': getattr(user, 'created_at', None)
-                    })
-                    break
-        
-        # Extract location if available
-        if hasattr(tweet_data, 'geo') and tweet_data.geo:
-            post_data['location'] = str(tweet_data.geo)
-        
-        return post_data
 
 
 class TwitterConnector(BaseSocialMediaConnector):
@@ -147,17 +148,13 @@ class TwitterConnector(BaseSocialMediaConnector):
                 await self._initialize_clients()
             
             # Test API access with a simple search (works with Bearer Token)
-            test_tweets = await self.client.search_recent_tweets(
+            await self.client.search_recent_tweets(
                 query="hello",
                 max_results=10
             )
             
-            if test_tweets:
-                logger.info("Twitter API Bearer Token validated successfully")
-                return True
-            else:
-                logger.error("Twitter API authentication failed")
-                return False
+            logger.info("Twitter API Bearer Token validated successfully")
+            return True
                 
         except Exception as e:
             logger.error(f"Twitter credential validation failed: {e}")
@@ -209,7 +206,7 @@ class TwitterConnector(BaseSocialMediaConnector):
             # Prepare search parameters
             search_params = {
                 'query': query,
-                'max_results': min(limit, 100),  # Twitter API limit
+                'max_results': max(10, min(limit, 100)),  # Twitter API allows 10-100
                 'tweet.fields': [
                     'created_at', 'author_id', 'public_metrics', 
                     'entities', 'geo', 'lang', 'context_annotations'
@@ -240,8 +237,7 @@ class TwitterConnector(BaseSocialMediaConnector):
                     })()
                     
                     # Convert to standardized format
-                    listener = TwitterStreamListener('', None)
-                    tweet_data = listener._convert_tweet_data(tweet_with_includes)
+                    tweet_data = _convert_tweet_data(tweet_with_includes)
                     
                     yield tweet_data
                     
@@ -271,7 +267,7 @@ class TwitterConnector(BaseSocialMediaConnector):
             # Prepare parameters
             params = {
                 'id': user_id,
-                'max_results': min(limit, 100),
+                'max_results': max(10, min(limit, 100)),
                 'tweet.fields': [
                     'created_at', 'public_metrics', 'entities', 
                     'geo', 'lang', 'context_annotations'
@@ -304,8 +300,7 @@ class TwitterConnector(BaseSocialMediaConnector):
                     })()
                     
                     # Convert to standardized format
-                    listener = TwitterStreamListener('', None)
-                    tweet_data = listener._convert_tweet_data(tweet_with_user)
+                    tweet_data = _convert_tweet_data(tweet_with_user)
                     
                     yield tweet_data
                     

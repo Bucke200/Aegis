@@ -34,7 +34,7 @@ class IncidentStatus(str, Enum):
 
 
 class Platform(str, Enum):
-    """Supported platforms for monitoring"""
+    """Supported data sources and platforms for monitoring"""
     TWITTER = "twitter"
     FACEBOOK = "facebook"
     INSTAGRAM = "instagram"
@@ -43,6 +43,8 @@ class Platform(str, Enum):
     DISCORD = "discord"
     PASTEBIN = "pastebin"
     GITHUB = "github"
+    MANUAL = "manual"
+    SYSTEM = "system"
 
 
 class Evidence(BaseModel):

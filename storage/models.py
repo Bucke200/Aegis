@@ -172,16 +172,3 @@ class SystemMetrics(Base):
     metric_type = Column(String(50), nullable=False)  # counter, gauge, histogram
     labels = Column(JSON, default=dict)  # Additional metric labels
     recorded_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
-
-
-async def init_database():
-    """Initialize database tables"""
-    try:
-        from .database import engine
-        # Create all tables
-        Base.metadata.create_all(bind=engine)
-        return True
-    except Exception as e:
-        from shared.logging_config import logger
-        logger.error(f"Failed to initialize database: {e}")
-        return False

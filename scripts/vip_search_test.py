@@ -2,7 +2,7 @@
 """
 Simple test for on-demand VIP threat search
 """
-from monitor_vip import VIPThreatSearcher
+from .monitor_vip import VIPThreatSearcher
 from shared.logging_config import logger
 import time
 
@@ -39,13 +39,13 @@ def test_vip_search():
         print("🚀 USAGE EXAMPLES:")
         print("=" * 50)
         print("1. Interactive mode:")
-        print("   python monitor_vip.py --interactive")
+        print("   python -m scripts.monitor_vip --interactive")
         print("\n2. Single search:")
-        print("   python monitor_vip.py --vip \"Joe Biden\"")
+        print("   python -m scripts.monitor_vip --vip \"Joe Biden\"")
         print("\n3. Custom keywords:")
-        print("   python monitor_vip.py --vip \"Taylor Swift\" --keywords \"threat,harm\"")
+        print("   python -m scripts.monitor_vip --vip \"Taylor Swift\" --keywords \"threat,harm\"")
         print("\n4. Limit results:")
-        print("   python monitor_vip.py --vip \"Elon Musk\" --max-results 5")
+        print("   python -m scripts.monitor_vip --vip \"Elon Musk\" --max-results 5")
         
     except Exception as e:
         print(f"❌ Test failed: {e}")

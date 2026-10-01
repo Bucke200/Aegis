@@ -236,9 +236,9 @@ def main():
         print("🛡️ Aegis VIP Threat Search")
         print("=" * 30)
         print("\nUsage examples:")
-        print("  python monitor_vip.py --vip \"Elon Musk\"")
-        print("  python monitor_vip.py --vip \"Joe Biden\" --keywords \"threat,attack,harm\"")
-        print("  python monitor_vip.py --interactive")
+        print("  python -m scripts.monitor_vip --vip \"Elon Musk\"")
+        print("  python -m scripts.monitor_vip --vip \"Joe Biden\" --keywords \"threat,attack,harm\"")
+        print("  python -m scripts.monitor_vip --interactive")
         print("\nStarting interactive mode...\n")
         searcher.interactive_search()
 

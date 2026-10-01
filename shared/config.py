@@ -2,8 +2,15 @@
 Shared configuration management for Aegis platform
 """
 import os
-from typing import Optional
+from typing import List, Optional
 from pydantic_settings import BaseSettings
+
+INSECURE_DEFAULTS = {
+    "secret_key": "your-secret-key-change-in-production",
+    "database_url": "postgresql://aegis:aegis123@localhost:5432/aegis",
+    "rabbitmq_url": "amqp://aegis:aegis123@localhost:5672/",
+    "rabbitmq_password": "aegis123",
+}
 
 
 class Settings(BaseSettings):
@@ -79,6 +86,13 @@ class Settings(BaseSettings):
     class Config:
         env_file = ".env"
         case_sensitive = False
+
+    def check_insecure_defaults(self) -> List[str]:
+        """Return names of settings still using insecure development defaults"""
+        return [
+            name for name, default in INSECURE_DEFAULTS.items()
+            if getattr(self, name, None) == default
+        ]
 
 
 # Global settings instance

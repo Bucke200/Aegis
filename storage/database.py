@@ -1,6 +1,7 @@
 """
 Database connection and session management
 """
+import asyncio
 from sqlalchemy import create_engine
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
@@ -45,3 +46,13 @@ def init_db():
     except Exception as e:
         logger.error(f"Failed to create database tables: {e}")
         raise
+
+
+async def init_database() -> bool:
+    """Initialize database tables without blocking the event loop"""
+    try:
+        await asyncio.get_running_loop().run_in_executor(None, init_db)
+        return True
+    except Exception as e:
+        logger.error(f"Failed to initialize database: {e}")
+        return False

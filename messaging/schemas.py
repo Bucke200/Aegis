@@ -7,6 +7,7 @@ from datetime import datetime
 from enum import Enum
 from pydantic import BaseModel, Field, validator
 from uuid import uuid4
+from shared.models import Platform
 
 
 class MessageType(str, Enum):
@@ -28,18 +29,7 @@ class Priority(str, Enum):
     CRITICAL = "critical"
 
 
-class SourceType(str, Enum):
-    """Data source types"""
-    TWITTER = "twitter"
-    FACEBOOK = "facebook"
-    INSTAGRAM = "instagram"
-    LINKEDIN = "linkedin"
-    TELEGRAM = "telegram"
-    DISCORD = "discord"
-    PASTEBIN = "pastebin"
-    GITHUB = "github"
-    MANUAL = "manual"
-    SYSTEM = "system"
+SourceType = Platform
 
 
 class ContentType(str, Enum):

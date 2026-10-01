@@ -148,6 +148,8 @@ The platform uses Docker Compose for infrastructure:
 - **Elasticsearch** (port 9200): Search and analytics
 - **Redis** (port 6379): Caching
 
+All services are defined in `docker-compose.yml` and started with `make docker-up`.
+
 ## 🛡️ Features
 
 ### Current Features (v1.0)
@@ -247,6 +249,7 @@ aegis-threat-monitor/
 ├── ingestion/              # Social media API connectors
 ├── scraping/               # Web scraping components
 ├── storage/                # Database models and utilities
+├── scripts/                # Ad-hoc diagnostic and test helpers
 ├── docker-compose.yml      # Infrastructure services
 ├── requirements.txt        # Python dependencies
 └── Makefile               # Development shortcuts

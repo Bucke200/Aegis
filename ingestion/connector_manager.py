@@ -263,10 +263,15 @@ class SocialMediaConnectorManager:
             raise
     
     async def _run_search_monitoring(self, task: MonitoringTask):
-        """Run search-based monitoring"""
+        """Run search-based monitoring across all task platforms"""
+        
+        await self._run_polling_monitoring(task, task.platforms)
+    
+    async def _run_polling_monitoring(self, task: MonitoringTask, platforms: List[SourceType]):
+        """Run periodic search monitoring for specific platforms"""
         
         start_time = datetime.utcnow()
-        last_search = {}
+        last_search: Dict[SourceType, datetime] = {}
         
         try:
             while not self._stop_event.is_set():
@@ -277,57 +282,6 @@ class SocialMediaConnectorManager:
                     break
                 
                 # Search on each platform
-                for platform in task.platforms:
-                    connector = self.connectors[platform]
-                    
-                    try:
-                        # Determine search timeframe
-                        since_time = last_search.get(platform, current_time - timedelta(minutes=30))
-                        
-                        # Search for each keyword
-                        for keyword in task.keywords:
-                            async for post_data in connector.search_posts(
-                                query=keyword,
-                                limit=50,
-                                since=since_time
-                            ):
-                                await self._handle_search_result(post_data, task.task_id, keyword)
-                        
-                        # Search for VIP mentions
-                        for vip in task.vips:
-                            async for post_data in connector.search_posts(
-                                query=vip,
-                                limit=50,
-                                since=since_time
-                            ):
-                                await self._handle_search_result(post_data, task.task_id, vip)
-                        
-                        last_search[platform] = current_time
-                        
-                    except Exception as e:
-                        logger.error(f"Search failed for {platform.value}: {e}")
-                
-                # Wait before next search cycle
-                await asyncio.sleep(task.interval)
-                
-        except Exception as e:
-            logger.error(f"Search monitoring failed for task {task.task_id}: {e}")
-            raise
-    
-    async def _run_polling_monitoring(self, task: MonitoringTask, platforms: List[SourceType]):
-        """Run polling monitoring for specific platforms"""
-        
-        start_time = datetime.utcnow()
-        
-        try:
-            while not self._stop_event.is_set():
-                current_time = datetime.utcnow()
-                
-                # Check duration limit
-                if task.duration and (current_time - start_time).total_seconds() > task.duration:
-                    break
-                
-                # Poll each platform
                 for platform in platforms:
                     if platform not in self.connectors:
                         continue
@@ -335,16 +289,22 @@ class SocialMediaConnectorManager:
                     connector = self.connectors[platform]
                     
                     try:
-                        # Use connector's streaming method which handles polling for non-streaming APIs
-                        await connector.stream_real_time(
-                            keywords=task.keywords,
-                            callback=lambda msg: self._handle_stream_message(msg, task.task_id)
-                        )
+                        since_time = last_search.get(platform, current_time - timedelta(minutes=30))
+                        
+                        for query in task.keywords + task.vips:
+                            async for post_data in connector.search_posts(
+                                query=query,
+                                limit=50,
+                                since=since_time
+                            ):
+                                await self._handle_search_result(post_data, task.task_id, query)
+                        
+                        last_search[platform] = current_time
                         
                     except Exception as e:
-                        logger.error(f"Polling failed for {platform.value}: {e}")
+                        logger.error(f"Search failed for {platform.value}: {e}")
                 
-                # Wait before next poll
+                # Wait before next search cycle
                 await asyncio.sleep(task.interval)
                 
         except Exception as e:
@@ -358,18 +318,8 @@ class SocialMediaConnectorManager:
         if not task:
             return
         
-        # Determine monitored VIP
         monitored_vip = self._extract_monitored_vip(message_data, task.vips)
-        
-        # Process message through connector
-        # The connector will handle message creation and publishing
-        
-        # Call registered callbacks
-        for callback in self.message_callbacks:
-            try:
-                await callback(message_data, task_id, monitored_vip)
-            except Exception as e:
-                logger.error(f"Message callback failed: {e}")
+        await self._dispatch_message_callbacks(message_data, task_id, monitored_vip)
     
     async def _handle_search_result(self, post_data: Dict[str, Any], task_id: str, keyword: str):
         """Handle search result"""
@@ -378,15 +328,18 @@ class SocialMediaConnectorManager:
         if not task:
             return
         
-        # Determine monitored VIP
         monitored_vip = self._extract_monitored_vip(post_data, task.vips)
+        await self._dispatch_message_callbacks(post_data, task_id, monitored_vip, keyword)
+    
+    async def _dispatch_message_callbacks(self, post_data: Dict[str, Any], task_id: str,
+                                          monitored_vip: Optional[str], keyword: Optional[str] = None):
+        """Invoke registered message callbacks with a consistent signature"""
         
-        # Call registered callbacks
         for callback in self.message_callbacks:
             try:
                 await callback(post_data, task_id, monitored_vip, keyword)
             except Exception as e:
-                logger.error(f"Search callback failed: {e}")
+                logger.error(f"Message callback failed: {e}")
     
     def _extract_monitored_vip(self, message_data: Dict[str, Any], vips: List[str]) -> Optional[str]:
         """Extract monitored VIP from message data"""

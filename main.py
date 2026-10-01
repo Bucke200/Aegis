@@ -14,7 +14,7 @@ from messaging.connection import rabbitmq_connection
 from messaging.queue_manager import queue_manager
 from ingestion.connector_manager import connector_manager, MonitoringMode
 from messaging.schemas import SourceType
-from storage.models import init_database
+from storage.database import init_database
 
 
 class AegisApp:
@@ -28,10 +28,15 @@ class AegisApp:
         """Initialize all system components"""
         logger.info("🚀 Initializing Aegis VIP Threat Monitoring Platform...")
         
+        insecure = settings.check_insecure_defaults()
+        if insecure:
+            logger.warning(f"⚠️ Using insecure default values for: {', '.join(insecure)}")
+        
         try:
             # Initialize database
             logger.info("📊 Setting up database...")
-            await init_database()
+            if not await init_database():
+                raise Exception("Failed to initialize database")
             
             # Setup message queue infrastructure
             logger.info("📨 Setting up message queue...")

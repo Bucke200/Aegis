@@ -5,7 +5,7 @@ Minimal Aegis test with SQLite database but no RabbitMQ
 import asyncio
 from shared.config import settings
 from shared.logging_config import logger
-from storage.models import init_database
+from storage.database import init_database
 
 
 async def test_database():
@@ -14,7 +14,7 @@ async def test_database():
     
     try:
         # Initialize database
-        init_database()
+        await init_database()
         print("✅ SQLite database initialized successfully!")
         print(f"   Database file: {settings.database_url}")
         return True
@@ -34,7 +34,7 @@ async def test_twitter():
         
         tweets = client.search_recent_tweets(
             query="hello world",
-            max_results=5,
+            max_results=10,
             tweet_fields=['author_id', 'created_at']
         )
         
