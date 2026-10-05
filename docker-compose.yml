@@ -6,8 +6,10 @@ x-app-environment: &app-environment
   AEGIS_DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-aegis}:${POSTGRES_PASSWORD:-aegis123}@postgres:5432/${POSTGRES_DB:-aegis}
   AEGIS_RABBITMQ_URL: amqp://${RABBITMQ_USER:-aegis}:${RABBITMQ_PASSWORD:-aegis123}@rabbitmq:5672/
   AEGIS_MINIO_ENDPOINT: minio:9000
-  AEGIS_MINIO_ACCESS_KEY: ${MINIO_ROOT_USER:-aegis}
-  AEGIS_MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-aegis123}
+  AEGIS_MINIO_ACCESS_KEY: ${MINIO_APP_ACCESS_KEY:-aegis-app}
+  AEGIS_MINIO_SECRET_KEY: ${MINIO_APP_SECRET_KEY:-aegis-app-secret}
+  AEGIS_MINIO_RETENTION_ACCESS_KEY: ${MINIO_RETENTION_ACCESS_KEY:-aegis-retention}
+  AEGIS_MINIO_RETENTION_SECRET_KEY: ${MINIO_RETENTION_SECRET_KEY:-aegis-retention-secret}
   AEGIS_MINIO_SECURE: "false"
   AEGIS_CLAMAV_HOST: clamav
   AEGIS_CLAMAV_PORT: "3310"
@@ -85,6 +87,12 @@ services:
     environment:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:-aegis}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-aegis123}
+      MINIO_APP_ACCESS_KEY: ${MINIO_APP_ACCESS_KEY:-aegis-app}
+      MINIO_APP_SECRET_KEY: ${MINIO_APP_SECRET_KEY:-aegis-app-secret}
+      MINIO_RETENTION_ACCESS_KEY: ${MINIO_RETENTION_ACCESS_KEY:-aegis-retention}
+      MINIO_RETENTION_SECRET_KEY: ${MINIO_RETENTION_SECRET_KEY:-aegis-retention-secret}
+    volumes:
+      - ./deploy/minio:/policies:ro
     entrypoint:
       - /bin/sh
       - -c
@@ -93,7 +101,13 @@ services:
         mc mb --ignore-existing --with-lock local/aegis-evidence &&
         mc mb --ignore-existing local/aegis-media &&
         mc version enable local/aegis-evidence &&
-        mc version enable local/aegis-media
+        mc version enable local/aegis-media &&
+        (mc admin user add local "$$MINIO_APP_ACCESS_KEY" "$$MINIO_APP_SECRET_KEY" || true) &&
+        (mc admin user add local "$$MINIO_RETENTION_ACCESS_KEY" "$$MINIO_RETENTION_SECRET_KEY" || true) &&
+        (mc admin policy create local aegis-app /policies/app-policy.json || true) &&
+        (mc admin policy create local aegis-retention /policies/retention-policy.json || true) &&
+        mc admin policy attach local aegis-app --user "$$MINIO_APP_ACCESS_KEY" &&
+        mc admin policy attach local aegis-retention --user "$$MINIO_RETENTION_ACCESS_KEY"
     restart: "no"
 
   api:

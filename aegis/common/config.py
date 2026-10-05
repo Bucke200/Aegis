@@ -35,6 +35,8 @@ class Settings(BaseSettings):
     minio_secure: bool = False
     minio_evidence_bucket: str = "aegis-evidence"
     minio_media_bucket: str = "aegis-media"
+    minio_retention_access_key: str = ""
+    minio_retention_secret_key: SecretStr = SecretStr("")
 
     api_host: str = "0.0.0.0"
     api_port: int = 8000
