@@ -15,7 +15,14 @@ import pytest
 from sqlalchemy import Engine, create_engine, text
 from sqlalchemy.orm import Session
 
+from aegis.common.config import get_settings
+
 TEST_DATABASE_URL_ENV = "AEGIS_TEST_DATABASE_URL"
+
+_TEST_DATABASE_URL = os.environ.get(TEST_DATABASE_URL_ENV)
+if _TEST_DATABASE_URL:
+    os.environ["AEGIS_DATABASE_URL"] = _TEST_DATABASE_URL
+    get_settings.cache_clear()
 
 
 @pytest.fixture(scope="session")
