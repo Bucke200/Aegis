@@ -110,7 +110,16 @@ jobs:
             exit 1
           fi
       - name: Run tests
-        run: uv run pytest
+        run: |
+          set +e
+          uv run pytest -q --tb=short > pytest-output.txt 2>&1
+          status=$?
+          cat pytest-output.txt
+          if [ "$status" -ne 0 ]; then
+            summary=$(grep -E "^(FAILED|ERROR)" pytest-output.txt | head -n 20 | tr '\n' ' ')
+            echo "::error::pytest failed: $summary"
+          fi
+          exit "$status"
 
   audit:
     name: Dependency audit
