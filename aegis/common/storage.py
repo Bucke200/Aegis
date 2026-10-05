@@ -173,14 +173,21 @@ class ObjectStorage:
             Retention(GOVERNANCE, retain_until),
         )
 
-    def delete(self, bucket: str, object_key: str, *, bypass_governance: bool = False) -> None:
-        """Delete an object, optionally bypassing governance retention."""
+    def delete(
+        self,
+        bucket: str,
+        object_key: str,
+        *,
+        version_id: str | None = None,
+        bypass_governance: bool = False,
+    ) -> None:
+        """Delete an object or a specific version, optionally bypassing retention."""
 
         if bypass_governance:
             self.client.remove_objects(
                 bucket,
-                [DeleteObject(object_key)],
+                [DeleteObject(object_key, version_id=version_id)],
                 bypass_governance_mode=True,
             )
         else:
-            self.client.remove_object(bucket, object_key)
+            self.client.remove_object(bucket, object_key, version_id=version_id)

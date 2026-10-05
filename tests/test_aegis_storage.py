@@ -95,8 +95,17 @@ def test_delete_without_bypass_uses_remove_object() -> None:
 
     storage.delete("aegis-media", "media/x")
 
-    client.remove_object.assert_called_once_with("aegis-media", "media/x")
+    client.remove_object.assert_called_once_with("aegis-media", "media/x", version_id=None)
     client.remove_objects.assert_not_called()
+
+
+def test_delete_specific_version() -> None:
+    client = Mock(spec=Minio)
+    storage = make_storage(client)
+
+    storage.delete("aegis-evidence", "evidence/x", version_id="v1")
+
+    client.remove_object.assert_called_once_with("aegis-evidence", "evidence/x", version_id="v1")
 
 
 def test_delete_with_bypass_uses_batch_api() -> None:

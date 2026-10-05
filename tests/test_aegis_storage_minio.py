@@ -59,9 +59,17 @@ def test_locked_evidence_needs_the_retention_role() -> None:
     key = evidence_object_key(uuid.uuid4(), "screenshot", uuid.uuid4().hex)
     storage.put_bytes(settings.minio_evidence_bucket, key, b"evidence", retention_days=1)
 
+    version_id = storage.client.stat_object(settings.minio_evidence_bucket, key).version_id
+    assert version_id
+
     with pytest.raises(S3Error):
-        storage.delete(settings.minio_evidence_bucket, key)
+        storage.delete(settings.minio_evidence_bucket, key, version_id=version_id)
 
     retention_storage = storage.with_retention_credentials(settings)
-    retention_storage.delete(settings.minio_evidence_bucket, key, bypass_governance=True)
+    retention_storage.delete(
+        settings.minio_evidence_bucket,
+        key,
+        version_id=version_id,
+        bypass_governance=True,
+    )
     assert storage.object_exists(settings.minio_evidence_bucket, key) is False
