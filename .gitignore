@@ -27,11 +27,22 @@ wheels/
 MANIFEST
 
 # Virtual environments
+.venv/
 venv/
 env/
 ENV/
 env.bak/
 venv.bak/
+
+# Tooling caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.nox/
 
 # Node.js
 node_modules/
@@ -71,9 +82,6 @@ storage/media/
 secrets/
 keys/
 certificates/
-
-# Docker
-.dockerignore
 
 # Temporary files
 tmp/

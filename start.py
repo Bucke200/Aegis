@@ -63,18 +63,32 @@ def check_requirements():
         print("❌ Docker Compose not found")
         return False
     
+    # Check uv
+    try:
+        result = subprocess.run(['uv', '--version'], capture_output=True, text=True)
+        if result.returncode == 0:
+            print(f"✅ {result.stdout.strip()}")
+        else:
+            print("❌ uv not found. Install it from https://docs.astral.sh/uv/")
+            return False
+    except FileNotFoundError:
+        print("❌ uv not found. Install it from https://docs.astral.sh/uv/")
+        return False
+    
     return True
 
 
 def install_dependencies():
-    """Install Python dependencies"""
+    """Install Python dependencies with uv"""
     print("\n📦 Installing Python dependencies...")
     
     try:
-        subprocess.run([sys.executable, '-m', 'pip', 'install', '-r', 'requirements.txt'], 
-                      check=True)
+        subprocess.run(['uv', 'sync'], check=True)
         print("✅ Dependencies installed")
         return True
+    except FileNotFoundError:
+        print("❌ uv not found. Install it from https://docs.astral.sh/uv/")
+        return False
     except subprocess.CalledProcessError:
         print("❌ Failed to install dependencies")
         return False

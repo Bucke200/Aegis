@@ -1,6 +1,6 @@
 # Aegis Platform Makefile
 
-.PHONY: help install dev test clean docker-up docker-down migrate
+.PHONY: help install test test-suites clean docker-up docker-down migrate
 
 help:
 	@echo "Aegis VIP Threat Monitoring Platform"
@@ -19,7 +19,6 @@ help:
 	@echo ""
 	@echo "🔧 Development:"
 	@echo "  install     - Install Python dependencies"
-	@echo "  dev         - Start development environment"
 	@echo "  test        - Run tests"
 	@echo "  clean       - Clean up temporary files"
 	@echo ""
@@ -54,18 +53,15 @@ help:
 	@echo "  format      - Format code with black"
 
 install:
-	pip install -r requirements.txt
-	cd frontend && npm install
-
-dev: docker-up
-	@echo "Starting development servers..."
-	@echo "API will be available at http://localhost:8000"
-	@echo "Frontend will be available at http://localhost:3000"
-	python -m uvicorn api.main:app --reload --host 0.0.0.0 --port 8000 &
-	cd frontend && npm start
+	uv sync
 
 test:
-	pytest tests/ -v
+	uv run pytest
+
+test-suites:
+	uv run python -m messaging.test_message_format
+	uv run python -m ingestion.test_connectors
+	uv run python -m scraping.test_scrapers
 
 clean:
 	find . -type f -name "*.pyc" -delete
@@ -83,15 +79,14 @@ docker-down:
 	docker-compose down
 
 migrate:
-	cd storage && alembic upgrade head
+	cd storage && uv run alembic upgrade head
 
 lint:
-	flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
-	mypy . --ignore-missing-imports
+	uv run flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
+	uv run mypy . --ignore-missing-imports
 
 format:
-	black . --line-length 88
-	isort . --profile black
+	uv run black . --line-length 88
 
 queue-setup:
 	python -m messaging.queue_cli setup

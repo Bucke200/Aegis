@@ -6,7 +6,8 @@ A comprehensive threat monitoring system designed to protect VIPs and public fig
 
 ### Prerequisites
 
-- Python 3.8+
+- Python 3.10–3.12
+- [uv](https://docs.astral.sh/uv/) (dependency management)
 - Docker and Docker Compose
 - Twitter Developer Account (for API access)
 
@@ -22,7 +23,7 @@ python start.py
 ```
 
 The script will:
-1. ✅ Check requirements (Python, Docker)
+1. ✅ Check requirements (Python, uv, Docker)
 2. 📦 Install dependencies
 3. 🐳 Start infrastructure services
 4. 🚀 Setup the platform
@@ -32,8 +33,8 @@ The script will:
 ### Option 2: Manual Setup
 
 ```bash
-# 1. Install dependencies
-pip install -r requirements.txt
+# 1. Install dependencies (creates .venv from uv.lock)
+uv sync
 
 # 2. Start infrastructure
 make docker-up
@@ -46,7 +47,7 @@ cp .env.template .env
 # Edit .env and add your TWITTER_BEARER_TOKEN
 
 # 5. Test connection
-python main.py test
+uv run python main.py test
 ```
 
 ### Get Twitter API Access
@@ -199,14 +200,19 @@ docker-compose logs -f elasticsearch
 ### Unit Tests
 
 ```bash
-# Test message format system
-make format-test
+# Install dependencies (includes the dev group)
+uv sync
 
-# Test social media connectors
-python -m ingestion.test_connectors
+# Run the pytest suite
+make test          # or: uv run pytest
+```
 
-# Test web scrapers
-python -m scraping.test_scrapers
+The pytest suite covers message schemas/routing, configuration safeguards,
+database initialization, and the connector manager. Legacy component suites
+(message format, connectors, scrapers) can still be run directly:
+
+```bash
+make test-suites
 ```
 
 ### Integration Tests
@@ -220,6 +226,25 @@ python -m ingestion.connector_cli test-search --platform twitter --query "test"
 
 # Test web scraper
 python -m scraping.scraper_cli test-search --source pastebin --query "test"
+```
+
+## 🔁 CI/CD
+
+Pipelines are defined under `.github/workflows/`:
+
+- **CI** (`ci.yml`): runs on every push and pull request. Lints (flake8 + black),
+  runs the pytest suite on Python 3.10–3.12, and validates `docker-compose.yml`.
+- **CD** (`cd.yml`): on pushes to `master`/`main` and `v*` tags, builds the
+  `Dockerfile` and publishes the image to GitHub Container Registry (GHCR):
+
+  ```bash
+  docker pull ghcr.io/<owner>/aegis:latest
+  ```
+
+Build locally with:
+
+```bash
+docker build -t aegis .
 ```
 
 ## 🔒 Security
@@ -249,9 +274,12 @@ aegis-threat-monitor/
 ├── ingestion/              # Social media API connectors
 ├── scraping/               # Web scraping components
 ├── storage/                # Database models and utilities
+├── tests/                  # pytest suite
 ├── scripts/                # Ad-hoc diagnostic and test helpers
+├── pyproject.toml          # Project metadata and dependencies
+├── uv.lock                 # Locked dependency graph
+├── Dockerfile              # Container image (uv-based)
 ├── docker-compose.yml      # Infrastructure services
-├── requirements.txt        # Python dependencies
 └── Makefile               # Development shortcuts
 ```
 

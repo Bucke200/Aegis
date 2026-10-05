@@ -1,274 +1,396 @@
 # Implementation Plan
 
-- [x] 1. Set up project structure and core infrastructure
+Ordering principle: build a thin end-to-end slice first. The slice is replay data flowing through normalization, mention resolution, text detection, scoring, incidents, a live dashboard, and alerts. Sources and detectors are widened after that. Every task ships with its own tests; the "Done when" line is the acceptance check for the task.
 
-  - Create directory structure for microservices architecture (ingestion, processing, storage, api, frontend)
-  - Set up Docker containerization with docker-compose for local development
-  - Configure environment management and secrets handling
-  - _Requirements: 2.4, 8.4_
+**MVP = Phases 0–3.** Phase 1 (the vertical slice) is an internal milestone, not a release. The MVP release happens after task 21. Everything under "Post-MVP Backlog" is out of scope for it.
 
-- [ ] 2. Implement core data models and database schema
-- [x] 2.1 Create database schema and models
+---
 
-  - Design and implement PostgreSQL schema for VIPs, incidents, users, and campaigns
-  - Create SQLAlchemy/Prisma models with proper relationships and constraints
-  - Write database migration scripts for schema versioning
+## Phase 0: Foundations
 
-  - _Requirements: 8.3, 10.2_
+- [ ] 1. Project skeleton and developer environment
+  - Apply the migration stance from the design: tag `legacy-v0` and branch `legacy/v0`, then delete the legacy packages, their tests, `start.py`, and `.flake8` from `main`
+  - Create the modular-monolith package layout (`aegis/common`, `collectors`, `pipeline`, `detectors`, `evidence`, `alerting`, `api`, `eval`), plus `frontend/`, `migrations/`, `deploy/`, `docs/`, `data/golden/`, `reports/eval/`
+  - Retarget `pyproject.toml` (core dependencies only; optional groups `collectors`, `media`, `capture` added by the tasks that need them), `uv.lock`, `Dockerfile`, `.dockerignore`, `Makefile`, `README.md`, `.env.example`, and pytest config to `aegis/`
+  - Write Docker Compose with Postgres 16 + pgvector, RabbitMQ, MinIO, api, worker, and frontend services; build a single backend image with multiple entrypoints
+  - Load configuration with pydantic-settings; commit `.env.example`; keep secrets out of the repository
+  - Pin Python 3.12: `requires-python = ">=3.12,<3.13"` in `pyproject.toml`, a `python:3.12-slim` base image, and the same version in CI
+  - Set up structured logging (structlog JSON) and `/health` endpoints from day one
+  - Set up CI: ruff, mypy, pytest, frontend lint/build, pip-audit / npm audit
+  - Done when: `docker compose up` brings every service up healthy and CI passes on the skeleton
+  - _Requirements: 19.3, 19.4_
 
-- [ ] 2.2 Set up search and indexing system
+- [ ] 2. Data model and storage
+- [ ] 2.1 Create database schema and migrations
+  - Implement every table in the design data model (VIPs and reference data, accounts/items/media, detections/incidents/events/notes, campaigns/edges, evidence/custody, alerts, labels/suppressions, users/scopes, audit log, outbox, scoring configs, saved searches)
+  - Write Alembic migrations with UUID primary keys, the composite primary keys listed under "Keys" in the design, and unique and search indexes (dedup key, GIN tsvector, trigram, HNSW vectors)
+  - Make `audit_log` insert-only at the database grant level
+  - Implement incident subjects (`item` and `account`) with their check constraints and partial unique indexes, `incident_items`, `account_vip_scores`, detection scope constraints, the `custody_log` target check constraint, `incidents.merged_into_id` (self-FK, only allowed on item incidents pointing at an account incident, enforced by a check plus trigger), `incidents.below_threshold`, and the `rescore`/`item_attached`/`merged_into`/`campaign_linked` event types, all as described in the design
+  - Tests: migration up/down; constraint tests (dedup uniqueness, one item incident per item, one open account incident per (account, VIP), detection scope rules)
+  - Done when: migrations apply cleanly on an empty database and the constraint tests pass
+  - _Requirements: 1.1, 1.2, 3.3, 6.8, 10.6, 13.2, 15.2, 17.3_
 
-  - Configure Elasticsearch with Docker for easiest setup (single-node for development)
-  - Create index mappings with proper field types and analyzers
-  - Implement basic index management (start simple, optimize later)
-  - _Requirements: 7.2, 8.4_
+- [ ] 2.2 Define common item schema v1
+  - Write Pydantic models for item, author, media, relations, and engagement; export JSON Schema; implement version handling (current and previous major version)
+  - Build fixture files per planned source for contract tests
+  - Tests: valid/invalid fixtures; round-trip serialization
+  - Done when: every fixture validates and invalid fixtures produce readable errors
+  - _Requirements: 2.8, 3.1, 3.2_
 
-- [ ] 2.3 Configure object storage system
+- [ ] 2.3 Configure object storage
+  - Write a MinIO client wrapper that uploads with a computed SHA-256 and handles download and presigned URLs
+  - Configure the evidence bucket with versioning and object lock (compliance mode, configurable retention), and the media bucket separately
+  - Tests: upload/download, hash correctness, locked objects cannot be deleted
+  - Done when: an evidence object cannot be overwritten or deleted inside its retention period
+  - _Requirements: 13.3_
 
-  - Start with local filesystem storage for development simplicity
-  - Implement file upload/download utilities with proper error handling
+- [ ] 3. Messaging backbone
+- [ ] 3.1 Set up RabbitMQ topology and worker base classes
+  - Declare quorum queues `items.raw`, `items.normalized`, `media.analyze`, `evidence.capture`, `analysis.account_embedded`; the `events.incidents` and `events.accounts` topic exchanges and the `events.config` fanout exchange (per-instance exclusive queues for cache invalidation plus the shared durable `config.recompute` queue); delayed-retry queues; a DLQ per queue; priority on `items.normalized`
+  - Implement producer (publisher confirms) and consumer (ack after DB commit, bounded retries with backoff, then DLQ) base classes
+  - Build a DLQ inspection and re-drive CLI
+  - Tests: poison message lands in DLQ after N retries; messages survive a broker restart
+  - Done when: killing a worker mid-batch loses no items and creates no duplicates
+  - _Requirements: 3.2, 19.3_
 
-  - Create simple cleanup scripts for file retention
-  - _Requirements: 8.2, 8.5_
+- [ ] 3.2 Build the transactional outbox and incident events
+  - Write the outbox row in the same transaction as incident and VIP-configuration changes; implement a publisher that routes each committed row by `event_type` to `events.incidents` or `events.config` and marks rows published
+  - Tests: a rolled-back transaction publishes nothing; a publisher crash causes no event loss (at-least-once delivery, idempotent consumers)
+  - Done when: every committed incident change produces at least one consumable event, and consumers deduplicate by event ID so each change takes effect exactly once
+  - _Requirements: 11.1, 14.1_
 
-- [ ] 3. Build message queue infrastructure
-- [ ] 3.1 Set up message broker system
+- [ ] 4. Test data and evaluation harness (build early; everything downstream depends on it)
+- [ ] 4.1 Build the replay source and synthetic generator
+  - Replay JSONL into `items.raw` at real or accelerated speed, preserving relative timing
+  - Generate synthetic data: coordinated campaigns (N accounts, shared text with variations), homoglyph impersonators, leaks containing fake PII, Hinglish threats, and benign criticism
+  - Done when: the generator produces a reproducible dataset (seeded) and replay drives the pipeline at a configurable rate
+  - _Requirements: 2.2, 19.1_
 
-  - Configure RabbitMQ with Docker for easiest setup and reliable delivery
-  - Implement producer and consumer base classes using pika (Python) library
-  - Set up basic monitoring and health checks for message queue
-  - _Requirements: 2.4, 1.1_
+- [ ] 4.2 Build the golden evaluation dataset and runner
+  - Write annotation guidelines covering intent classes, severity examples, and edge cases (satire, quotes, news reporting of threats)
+  - Label an initial set (target 300+ items per threat class across English, Hindi, and Hinglish, plus synthetic impersonation and leak sets)
+  - Build the eval CLI in `aegis/eval`: `python -m aegis.eval run --golden data/golden/ --out reports/eval/` writes a per-detector, per-language report (JSON and Markdown); add `make eval` as a wrapper; commit the first report as `reports/eval/baseline.json`
+  - Done when: `make eval` produces a per-detector report from the golden set
+  - _Requirements: 16.2_
 
-- [x] 3.2 Create standardized message format
+---
 
-  - Define JSON schema for standardized data format across all sources
-  - Implement message validation and serialization utilities
-  - Create message routing logic based on source and content type
-  - _Requirements: 2.4, 8.3_
+## Phase 1: Vertical slice (internal milestone)
 
-- [ ] 4. Implement data ingestion layer
-- [ ] 4.1 Build social media API connectors
+- [ ] 5. VIP management
+- [ ] 5.1 Implement VIP CRUD and configuration
+  - Build an API and service for VIPs, aliases (name/nickname/transliteration/handle/hashtag, with an ambiguity flag), context keywords, official accounts with verification evidence and profile data (display name, bio, avatar; refreshed daily where the source allows, otherwise entered by an Admin), sensitivity, and the monitoring on/off switch
+  - Pausing monitoring stops new incidents within 5 minutes (config cache TTL); all changes are written to the audit log
+  - Tests: CRUD, pause behavior, audit entries
+  - Done when: a VIP can be fully configured over the API and every change appears in the audit log
+  - _Requirements: 1.1, 1.2, 1.5, 1.6_
 
-  - Create Twitter/X API connector with real-time streaming capability
+- [ ] 5.2 Implement reference media upload
+  - Upload reference images and compute pHash/dHash; embeddings are added once 14.2 lands (reuse that module)
+  - Done when: uploaded references have stored hashes and are queryable per VIP
+  - _Requirements: 1.3_
 
-  - Implement Meta Graph API connector for Facebook and Instagram
-  - Build LinkedIn API connector for professional network monitoring
-  - Add proper rate limiting and error handling for all connectors
-  - _Requirements: 2.1, 2.4_
+- [ ] 5.3 Implement sensitive-data fingerprint registration
+  - Normalize phones (E.164), emails, and address tokens; store salted hashes only, with salt rotation support
+  - Tests: plaintext never reaches the database or logs (assert on captured logs)
+  - Done when: registered values can be matched but not recovered
+  - _Requirements: 1.4_
 
-- [x] 4.2 Develop web scraping components
+- [ ] 6. Normalization, deduplication, and mention resolution
+- [ ] 6.1 Build the normalizer worker
+  - Validate against the schema (invalid items go to the DLQ); compute the dedup key; upsert account and item; keep the raw payload; track edits and deletions in `item_versions`
+  - Detect language and script (fastText lid or lingua), including romanized-Hindi detection
+  - On engagement updates, append to `item_engagement_snapshots`, keep `items.engagement` as the latest value, and trigger a re-score when reach reaches 10 × max(`scored_reach`, 10)
+  - Tests: duplicate items update engagement only and append a snapshot; an edit creates a version row
+  - Done when: replaying the same dataset twice creates no new items or incidents
+  - _Requirements: 3.1, 3.2, 3.3, 3.4, 3.5_
 
-  - Create Pastebin scraper using Scrapy framework (easiest Python scraping tool)
-  - Implement GitHub code search using requests + BeautifulSoup for simplicity
-  - Add basic rate limiting and respectful crawling practices
-  - Start simple, add Huginn later for advanced monitoring if needed
-  - _Requirements: 2.2, 2.4_
+- [ ] 6.2 Build VIP mention resolution
+  - Build an Aho-Corasick automaton from aliases; match original, confusables-normalized, and transliterated text (IndicXlit); match handles and hashtags
+  - Apply context-keyword disambiguation for ambiguous aliases; record match confidence per the design's match-confidence table; support multiple VIPs per item
+  - Tests: Hinglish and Devanagari variants, homoglyph-obfuscated names, common-name collisions
+  - Done when: mention recall and precision on the golden set meet the agreed targets
+  - _Requirements: 4.1, 4.2, 4.3, 4.4_
 
-- [ ] 4.3 Create messaging platform bots
+- [ ] 7. Text threat detection cascade
+- [ ] 7.1 Implement Stage 1: lexicons and multilingual toxicity
+  - Curate versioned threat/abuse/specificity lexicons for English, Hindi, and Hinglish; integrate the multilingual toxicity model; apply the stage-1 threshold to skip later stages
+  - Record detector name, model version, score, and spans on every detection
+  - _Requirements: 5.2, 5.3, 5.5_
 
-  - Develop Telegram bot for public channel monitoring
-  - Build Discord bot for public server tracking
-  - Implement secure token management and API authentication
-  - Add bot command interfaces for configuration and testing
-  - _Requirements: 2.3, 2.4_
+- [ ] 7.2 Implement Stage 2: LLM threat-intent classifier
+  - Build the structured-output prompt and JSON schema (intent using the six canonical labels, solicitation, target, specificity, confidence, rationale, spans) with schema validation and retry on malformed output
+  - Run it on every VIP-linked item that passes Stage 1 (no uncertainty-band gating at MVP)
+  - Request per-class `intent_probs`; compute `threat_prob` (harassment + violent_threat + incitement + doxxing) and calibrate it with an isotonic calibrator fitted on the golden set; store the label and the calibrated `threat_prob` as the detection score
+  - Enforce the daily token budget; fall back to Stage 1 scores and a `degraded` tag when the budget is exhausted or the provider fails
+  - Done when: intent-classification precision and recall on the golden set meet targets, and criticism-only items never score above low
+  - _Requirements: 5.1, 5.4, 5.5, 5.6_
 
-- [ ] 5. Build core analysis modules
-- [ ] 5.1 Implement NLP threat detection module
+- [ ] 8. Scoring and incident creation
+- [ ] 8.1 Build the scoring engine
+  - Implement noisy-OR combination, reach and VIP multipliers, severity bands, critical overrides, the threat-class-based criticism cap (toxicity alone never lifts it), and suppression-rule checks
+  - Seed `scoring_config` v1 with the detector reliability weights from the design and a default capture severity of medium
+  - Score each item once per linked VIP (VIP-scoped detections plus null-VIP detections, with `mention_mult` from match confidence) and take the max; apply the criticism clamp to the score (`min(risk, 0.54)`), not only the severity
+  - Implement re-scoring: triggered by the reach rule from 6.1 now, by campaign membership once 16.3 lands, and by item attachment once 13.4 lands; never change a severity marked `severity_manual`; write a `rescore` incident event with the trigger and old/new values, and update `scored_reach`
+  - Version the scoring config; generate the explanation from a template
+  - Tests: table-driven cases for each band, each override, the clamp (including a high-confidence criticism item with high toxicity staying at ≤ 0.54), and re-scoring with and without a manual severity; an ambiguous-mention item scoring lower than an exact-mention one
+  - _Requirements: 5.6, 10.1, 10.2, 10.3, 10.5, 10.6, 10.7_
 
-  - Set up Hugging Face Transformers with pre-trained models for threat detection
-  - Integrate spaCy for fast named entity recognition and text processing
+- [ ] 8.2 Build the incident builder (item incidents)
+  - Create one item incident per item grouping all item-scoped detections and inserting an `incident_vips` row for every VIP with risk ≥ 0.30; make creation idempotent; write the outbox event in the same transaction; enqueue evidence capture above the capture threshold
+  - Account incidents are built in 13.4; the schema from 2.1 already supports them
+  - Done when: replaying the synthetic text dataset yields the expected item incidents and severities in Postgres
+  - _Requirements: 10.4, 13.1_
 
-  - Create sentiment analysis pipeline with toxicity scoring
-  - Implement keyword matching with configurable threat indicators
-  - _Requirements: 2.5, 3.1_
+- [ ] 9. Backend API and dashboard (completes the vertical slice)
+- [ ] 9.1 Build API foundations and access control
+  - Set up FastAPI with JWT access tokens and rotating refresh tokens, Argon2id hashing, and TOTP MFA for admins
+  - Enforce RBAC (Admin/Lead/Analyst/Viewer) with a per-VIP scope dependency applied to every query; add audit middleware and an in-process per-user rate limiter (single API instance at MVP)
+  - Implement the per-VIP `can_reveal_sensitive` permission: Admin-only grant and revoke, never assignable to Viewers, audited
+  - Tests: an analyst cannot read incidents for an unassigned VIP through any endpoint
+  - _Requirements: 17.1, 17.2, 17.3, 17.4_
 
-- [ ] 5.2 Develop image analysis capabilities
+- [ ] 9.2 Build incident endpoints
+  - List with structured filters (AND across filters, OR within a filter), keyset pagination, and sort by time or severity
+  - Detail endpoint returning detections, account, campaign, history, notes, and evidence links
+  - Status transitions following the workflow table in the design (including Lead-only reopen) with reasons and history; resolution outcome required; notes; assignment with notification; bulk actions
+  - _Requirements: 11.3, 12.1, 12.3, 15.1, 15.2, 15.3, 15.4, 15.5, 15.7_
 
-  - Implement ImageHash library for perceptual hashing (pHash) image comparison
-  - Set up PyTorch or TensorFlow for deepfake detection using FaceForensics++ models
-  - Create reverse image search integration with Google Lens API
-  - Build image similarity detection with configurable thresholds
-  - _Requirements: 5.1, 5.2, 5.3_
+- [ ] 9.3 Build the WebSocket gateway
+  - Consume `events.incidents` and push to connections filtered by VIP scope; handle reconnect and resync (client refetches since its last-seen event)
+  - Done when: a new incident appears on a connected dashboard within 10 seconds, and never on a dashboard outside the VIP's scope
+  - _Requirements: 11.1_
 
-- [ ] 5.3 Create impersonation detection system
+- [ ] 9.4 Build the dashboard frontend
+  - Set up React + TypeScript + Vite, React Router, TanStack Query, and Tailwind
+  - Build the login flow (with MFA), a live incident feed with filter sidebar, incident cards with all required fields, and an incident detail view (detections with highlighted spans, account panel, history, notes, status/assign/resolve controls)
+  - Build VIP admin screens; make the layout responsive at tablet and desktop widths
+  - Tests: Vitest component tests; a Playwright end-to-end test of login → live incident → assign → note → resolve
+  - Done when: the replayed dataset produces live incidents an analyst can triage end-to-end
+  - _Requirements: 11.1, 11.2, 11.3, 11.4, 11.6, 15.1, 15.3, 15.4_
 
-  - Implement username similarity analysis using Levenshtein distance
-  - Build profile scoring algorithm with weighted factors
-  - Create golden record management for official VIP profiles
-  - Add profile metadata analysis (followers, creation date, verification)
-  - _Requirements: 2.4, 4.2, 4.4_
+- [ ] 10. Evidence capture
+- [ ] 10.1 Build the sandboxed capture service
+  - Run Playwright (Python) in an isolated container with a fresh context per capture, a timeout, and an egress proxy that blocks private and metadata ranges
+  - Capture raw payload, full-page screenshot, HTML, original media, and an account snapshot for item incidents; build the account-incident capture path now (profile page screenshot and HTML, avatar, account snapshot at creation, then each attached item as it arrives), exercised end-to-end once 13.4 lands; retry with backoff; record final failures on the incident
+  - _Requirements: 13.1, 13.6_
 
-- [ ] 5.4 Build coordinated behavior detection
+- [ ] 10.2 Build manifests, custody log, and export
+  - Hash every artifact and write a versioned manifest whose file content includes `version` and `prev_manifest_sha256`; each later capture for the same incident writes a new version chained to the previous one; store manifest hashes in Postgres; log every view, download, and export to the custody log (exactly one of artifact or manifest per row)
+  - Export a ZIP containing a PDF summary, artifacts, every manifest version, and `VERIFY.md` explaining how to check artifact hashes and walk the manifest chain
+  - Tests: tampering with any exported artifact, or with any earlier manifest version, fails verification
+  - _Requirements: 13.2, 13.3, 13.4, 13.5_
 
-  - Set up NetworkX for graph creation, manipulation, and analysis
-  - Implement content similarity analysis using Jaccard similarity
-  - Create temporal pattern analysis for anomaly detection
-  - Build account clustering algorithms for campaign identification using NetworkX
-  - _Requirements: 4.1, 6.1, 6.2, 6.3_
+- [ ] 10.3 Implement source-removed checks
+  - Re-fetch high-or-above incidents at 1 hour, 24 hours, and 7 days; mark them `source_removed`; keep the evidence accessible
+  - _Requirements: 13.7_
 
-- [ ] 6. Develop processing worker system
-- [ ] 6.1 Create processing worker framework
+- [ ] 11. Alerting (email and Slack)
+- [ ] 11.1 Build the alert rules engine
+  - Consume incident events and evaluate per-VIP and per-user rules (minimum severity, channels, quiet hours that never suppress critical)
+  - Group related incidents within the grouping window; produce digests for digest-only severities
+  - Ensure alerts never include unmasked sensitive values
+  - _Requirements: 14.3, 14.4, 14.6_
 
-  - Build scalable worker system that consumes from message queue
-  - Implement worker orchestration with proper load balancing
-  - Add worker health monitoring and automatic restart capabilities
-  - Create processing pipeline with configurable module chains
-  - _Requirements: 1.1, 2.4_
+- [ ] 11.2 Build delivery channels and tracking
+  - Implement SMTP email and a Slack app with an Acknowledge button; track delivery state; retry with backoff; escalate unacknowledged critical alerts to the secondary recipient
+  - Done when: a critical incident from replay produces a Slack alert within 2 minutes of `collected_at` (p95 measured under load in task 20.3)
+  - _Requirements: 14.1, 14.2, 14.5_
 
-- [ ] 6.2 Implement analysis result aggregation
+- [ ] 12. First real sources
+- [ ] 12.1 Build manual URL submission
+  - Implement SSRF-safe fetching (DNS resolution check, redirect re-check, scheme allowlist); use platform extractors where possible; otherwise fall back to screenshot capture plus analyst-entered text
+  - Route submissions through the normal pipeline at high priority
+  - Accept profile URLs as well as post URLs; a profile submission creates or updates the account (`discovered_via = manual_profile`) and queues it for impersonation scoring
+  - Tests: SSRF suite (private IPs, DNS rebinding, redirects to internal hosts)
+  - _Requirements: 2.5, 2.6_
 
-  - Create system to combine results from multiple analysis modules
-  - Implement severity scoring based on multiple threat indicators
-  - Build incident creation logic with proper deduplication
-  - Add evidence collection and storage coordination
-  - _Requirements: 3.1, 8.1, 8.2_
+- [ ] 12.2 Build the Telegram collector
+  - Implement a Telethon (MTProto) client on a dedicated monitoring account, with a configurable channel list and cursors stored in Postgres
+  - Honor FloodWait; report staleness and auth failures to source health
+  - _Requirements: 2.1, 2.2, 2.4, 2.7_
 
-- [ ] 7. Build evidence collection system
-- [ ] 7.1 Implement screenshot capture service
+- [ ] 12.3 Build the GitHub code search collector
+  - Use the authenticated REST code search API, with queries generated from VIP keywords and org domains; implement a rate-limit-aware scheduler
+  - Written fresh under `aegis/collectors/github.py`; the legacy BeautifulSoup scraper lives only on `legacy/v0`
+  - _Requirements: 2.1, 2.2, 2.4, 2.7_
 
-  - Create headless browser service using Puppeteer for screenshot capture
-  - Build URL validation and safety checks before capture
-  - Implement screenshot optimization and compression
-  - Add retry logic for failed captures with exponential backoff
-  - _Requirements: 8.1, 8.5_
+---
 
-- [ ] 7.2 Create media download and storage
+## Phase 2: Broaden detection
 
-  - Build secure media download system with virus scanning
-  - Implement media format validation and conversion
-  - Create media deduplication using content hashing
-  - Add media metadata extraction and indexing
+- [ ] 13. Impersonation detection (depends on 14.1 for the media worker and 14.2 for the shared pHash and OpenCLIP embedding code; build both before 13.2)
+- [ ] 13.1 Implement handle and name normalization and similarity
+  - Apply NFKC, a UTS #39 confusables skeleton, lowercasing, separator stripping, a leetspeak map, and filler-token stripping
+  - Compute Jaro-Winkler and normalized Levenshtein similarity
+  - Tests: a synthetic homoglyph and look-alike set (e.g., Cyrillic/Latin swaps, `_official` suffixes)
+  - _Requirements: 6.2_
+
+- [ ] 13.2 Build the two-phase profile scorer
+  - Generate candidates (authors of VIP-linked items, plus accounts known only from their profile whose handle or display name contains an alias token)
+  - Pre-screen in the analysis worker (handle, display name, metadata); record state in `account_vip_scores`; enqueue an `account_profile` job on `media.analyze` when the pre-screen is ≥ 0.35 or an alias token matches
+  - Handle `account_profile` jobs in the media worker (avatar pHash and OpenCLIP embedding, multilingual bio embedding), for suspect and official accounts alike; publish `account.embedded`
+  - On `account.embedded` (consumed from `analysis.account_embedded`), complete scoring (adding avatar and bio components); after failure or a 10-minute timeout, score with those components at 0 and mark `partial`; rescore on profile change
+  - Invalidate on VIP configuration change using `vips.config_version`, consuming `config.recompute` (one consumer per event, a per-VIP Postgres advisory lock, idempotent on `vip_config_version`, plus an hourly sweeper for VIPs left behind): re-evaluate against the new threshold for threshold-only changes; mark rows `stale` and batch-recompute from stored embeddings for alias, official-account, or reference-media changes
+  - Tests: two workers receiving the same config event run the batch once; a lost event is picked up by the sweeper
+  - Apply the parody/fan discount and per-VIP thresholds; exclude official accounts; emit an account-scoped `impersonation` detection with component scores as evidence
+  - Build the solicitation detector (Stage 2 `solicitation` field plus patterns: UPI handle suffix list, crypto wallets, bank account plus IFSC, OTP/password lexicon, non-official domains); store its detections inert on every VIP-linked item
+  - Done when: impersonation precision and recall on the synthetic and golden sets meet targets, and the analysis worker's throughput is unchanged with impersonation enabled
+  - _Requirements: 6.1, 6.3, 6.4, 6.5, 6.7, 1.2_
+
+- [ ] 13.3 Generate the report package
+  - Produce a PDF plus artifacts showing the official and suspect profiles side by side, available after an analyst confirms
+  - _Requirements: 6.6_
+
+- [ ] 13.4 Build account incidents end-to-end
+  - Create or update one open account incident per (account, VIP) from `impersonation` detections, inserting its `incident_vips` row in the same transaction; attach the account's VIP-linked items from the last 30 days, then each later one, via `incident_items` with their `item_risk`
+  - Reconcile items that already have their own incident, following the design's merge table: set `merged_into_id`, freeze scoring, hide from the default feed, carry the assignee, take `item_risk` from the item incident (0 if it was False Positive), write `merged_into` and `item_attached` events, and make merged incidents read-only apart from notes
+  - Implement account-incident scoring (impersonation risk combined with the worst attached item's stored `item_risk`), the solicitation and violent-threat overrides, re-scoring on attachment, the Resolved → new linked incident rule, and the 90-day suppression rule on False Positive
+  - Handle accounts that fall below a raised threshold: auto-resolve with the system outcome `below_threshold` only when the incident is untouched, not critical, and has no attached item at medium or above; otherwise keep it open and flag `below_threshold`
+  - Make merged incidents consistent everywhere: exclude them from default search and add the "include merged" filter; push `{type: "merged", incident_id, merged_into_id}` over the WebSocket and have the client drop the card; move the campaign link to the account incident when it has none; resolve campaign members to live incidents in the campaign view and bulk actions
+  - Render account incidents in the dashboard: suspect profile on the feed card; side-by-side profiles, component scores, and an attached-item timeline in the detail view; "impersonation check pending" on item incidents whose author is still being scored
+  - Tests: an account incident whose score does not rise as more capped items attach but goes critical on a solicitation item; an item whose own incident was created before its author was flagged ends up merged, appears once in the default feed, and feeds only the account incident; a previously False-Positive item attaches with `item_risk` 0; a raised threshold auto-resolves an untouched low-risk account incident but only flags one an analyst is working on; a merged incident never reappears in search or on a connected dashboard
+  - Done when: a synthetic impersonator posting several items (some processed before the account is flagged) yields exactly one live account incident, which becomes critical when one of its items contains a UPI ID
+  - _Requirements: 6.8, 6.9, 6.10, 10.1, 10.3, 10.4, 10.7, 11.2, 11.4, 12.2, 13.1, 15.5, 15.7_
+
+- [ ] 14. Media analysis
+- [ ] 14.1 Build the media worker and safe download
+  - Enforce size and type limits, MIME sniffing, ClamAV scanning, and SHA-256 dedup before storage
+  - _Requirements: 7.1, 13.1_
+
+- [ ] 14.2 Implement fingerprinting and matching
+  - Compute pHash/dHash and OpenCLIP embeddings stored in pgvector (and backfill reference media from 5.2)
+  - Match against reference media and prior media; a reference match writes an `item_vips` link (`match_source = media`), not a detection; track first-seen occurrences; emit `repurposed_media` detections showing the earliest occurrence
+  - _Requirements: 1.3, 7.1, 7.2_
+
+- [ ] 14.3 Implement OCR and video keyframes
+  - Run PaddleOCR (English and Devanagari) into `items.ocr_text` and re-run text detection on it
+  - Extract ffmpeg scene-change keyframes (capped per video) and analyze them as images
+  - _Requirements: 7.3, 7.4_
+
+- [ ] 14.4 Integrate reverse image search
+  - Integrate TinEye or Cloud Vision Web Detection behind a provider interface; run only for high-or-above incidents; enforce a daily quota; store results as detection details
+  - _Requirements: 7.5_
+
+- [ ] 15. Leak and PII detection
+- [ ] 15.1 Build pattern detectors with validators
+  - Detect Indian mobile numbers, emails, Aadhaar (with Verhoeff checksum), PAN, address heuristics, and secrets (gitleaks rule set)
+  - _Requirements: 8.1_
+
+- [ ] 15.2 Implement fingerprint matching and leak incidents
+  - Normalize and hash detected values with active salts and compare them to VIP fingerprints; a match emits a `leak_fingerprint_match` detection that the scorer's override makes critical; non-matching PII near a VIP mention emits a `leak_pattern` detection scored normally
   - _Requirements: 8.2, 8.3_
 
-- [ ] 8. Develop backend API system
-- [ ] 8.1 Create REST API framework
+- [ ] 15.3 Implement masking and reveal
+  - Encrypt detected values at the application level; return masked values from the API and UI; restrict reveal to permitted roles and audit every reveal; scrub values from logs and alerts
+  - Tests: no raw value appears in any API response, alert payload, or log line
+  - _Requirements: 8.4, 14.3_
 
-  - Build FastAPI application (easiest Python framework with auto-documentation)
-  - Implement simple JWT-based authentication system
-  - Leverage FastAPI's automatic OpenAPI/Swagger documentation
-  - Add built-in request validation and error handling
-  - _Requirements: 7.1, 10.1_
+- [ ] 16. Coordinated campaign detection
+- [ ] 16.1 Implement near-duplicate clustering
+  - Normalize and shingle text; use MinHash LSH (datasketch) at Jaccard 0.7; add media near-duplicate edges; take connected components over a sliding window
+  - _Requirements: 9.1_
 
-- [ ] 8.2 Implement incident management endpoints
+- [ ] 16.2 Implement volume anomaly detection
+  - Use a per-VIP same-hour-of-week median/MAD baseline and robust z-score with a minimum count; route spikes to campaign candidate review
+  - _Requirements: 9.3_
 
-  - Create CRUD endpoints for incident management
-  - Build incident search and filtering with Elasticsearch/OpenSearch integration
-  - Implement incident status workflow management
-  - Add incident assignment and team collaboration features
-  - _Requirements: 1.2, 7.1, 7.3, 10.1, 10.3_
+- [ ] 16.3 Assemble campaigns
+  - Apply per-VIP N/W thresholds; exclude allowlisted accounts; compute the coordination score from account signals; record members, timeline, and `account_edges`; merge candidates into open campaigns on overlap
+  - Emit a `campaign_member` detection for each item joining a confirmed campaign and trigger re-scoring
+  - Done when: the synthetic campaigns are detected and organic news resharing in the golden set is not flagged
+  - _Requirements: 9.2, 9.4, 9.5, 9.6, 10.7_
 
-- [ ] 8.3 Build VIP management API
+- [ ] 16.4 Build graph analysis and the campaign view
+  - Run NetworkX Louvain communities and centrality; expose a campaign graph endpoint returning Cytoscape.js JSON
+  - Build a campaign page with graph and timeline; support bulk triage of campaign incidents
+  - _Requirements: 9.5, 15.7_
 
-  - Create VIP profile management endpoints
-  - Implement keyword and monitoring configuration APIs
-  - Build official profile verification system
-  - Add VIP-specific alert configuration management
-  - _Requirements: 4.4, 9.4_
+- [ ] 17. Search
+- [ ] 17.1 Implement full-text search
+  - Index text and OCR text with a `simple`-config tsvector; search account handles, display names, and bios via `accounts.tsv` plus trigram similarity, matching item incidents through `items.account_id` and account incidents through `incidents.account_id`; highlight with `ts_headline` for text fields and frontend substring highlighting for fuzzy handle matches; combine search with filters (account incidents have a null language)
+  - _Requirements: 12.2, 12.3, 12.4_
 
-- [ ] 8.4 Create analytics and reporting endpoints
+- [ ] 17.2 Implement saved searches
+  - Add the saved-search API and UI presets
+  - _Requirements: 12.6_
 
-  - Build dashboard analytics API with aggregated metrics
-  - Implement trend analysis and historical reporting
-  - Create campaign visualization data endpoints
-  - Add performance metrics and system health endpoints
-  - _Requirements: 6.2, 10.5_
+- [ ] 17.3 Benchmark search
+  - Generate one year of synthetic volume and measure p95 latency; open an Elasticsearch/OpenSearch migration task only if p95 exceeds 1 second
+  - _Requirements: 12.5_
 
-- [ ] 9. Build alerting and notification system
-- [ ] 9.1 Implement real-time alerting service
+- [ ] 18. Feedback loop and quality gates
+- [ ] 18.1 Capture labels and suppression rules
+  - Turn False Positive marks and type/severity corrections into labels linked to every detection that fired (for account incidents, keyed by incident and account with a null item); support suppression and allowlist rules with expiry and audit entries
+  - _Requirements: 16.1, 16.5_
 
-  - Create alert processing system with configurable rules
-  - Build multi-channel notification system (email, SMS, Slack)
-  - Implement alert escalation and retry logic
-  - Add alert delivery tracking and confirmation
-  - _Requirements: 9.1, 9.2, 9.5_
+- [ ] 18.2 Add the evaluation CI gate
+  - Run `make eval-gate` (`python -m aegis.eval gate --baseline reports/eval/baseline.json`) on any change to detectors, models, lexicons, or scoring config; fail CI when precision or recall drops beyond tolerance; sample reviewed labels weekly and add them to the golden set after a second review
+  - _Requirements: 16.2, 16.3_
 
-- [ ] 9.2 Create notification templates and formatting
+- [ ] 18.3 Build quality and workflow metrics
+  - Show detector false-positive rate over time, time to acknowledge, time to resolve, and outcome distribution per VIP and team, with per-analyst views restricted to leads
+  - _Requirements: 15.6, 16.4_
 
-  - Build customizable alert templates for different threat types
-  - Implement rich formatting for different notification channels
-  - Create alert summary and digest functionality
-  - Add notification preferences and scheduling
-  - _Requirements: 9.2, 9.3_
+---
 
-- [ ] 10. Develop frontend dashboard
-- [ ] 10.1 Create dashboard framework and routing
+## Phase 3: Hardening
 
-  - Set up React.js application with Create React App (easiest setup)
-  - Use React Router for simple routing and Context API for state management
-  - Implement responsive design with CSS Grid/Flexbox or Tailwind CSS
-  - Add simple JWT token-based authentication integration
-  - _Requirements: 1.1, 1.4_
+- [ ] 19. Data protection and retention
+- [ ] 19.1 Implement retention and offboarding jobs
+  - Delete unlinked items after 30 days and incidents/evidence after 1 year, with legal-hold exceptions; implement VIP offboarding deletion; make all periods configurable
+  - _Requirements: 18.1, 18.2, 18.4_
 
-- [ ] 10.2 Build incident feed and management interface
+- [ ] 19.2 Implement encryption
+  - Enable TLS between services; encrypt Postgres volumes; enable MinIO server-side encryption; manage keys for application-level encryption
+  - _Requirements: 18.3_
 
-  - Create real-time incident feed with WebSocket updates
-  - Implement incident card design with all required information
-  - Build incident detail modal with comprehensive evidence display
-  - Add incident status management and workflow controls
-  - _Requirements: 1.1, 1.3, 10.1, 10.2_
+- [ ] 19.3 Write data protection documentation
+  - Write `docs/data-protection.md` covering purpose, lawful basis (DPDP Act, 2023), data categories, retention, LLM provider handling, and a per-source ToS review; disable any source whose terms prohibit automated collection
+  - _Requirements: 2.5, 18.5_
 
-- [ ] 10.3 Implement search and filtering interface
+- [ ] 20. Observability and operations
+- [ ] 20.1 Set up metrics and dashboards
+  - Add Prometheus metrics (ingest rate, queue depth, stage latency, end-to-end processing latency, detector errors, alert delivery, LLM tokens); build Grafana dashboards
+  - _Requirements: 19.4_
 
-  - Create advanced search interface with multiple filter options
-  - Build real-time search with Elasticsearch/OpenSearch integration
-  - Implement saved searches and filter presets
-  - Add search result highlighting and pagination
-  - _Requirements: 1.2, 7.1, 7.2, 7.3_
+- [ ] 20.2 Add operational alerts and source health
+  - Alert on backlog, connector staleness, DLQ growth, disk usage, and LLM budget; show source health on the dashboard
+  - _Requirements: 2.7, 11.5, 19.5_
 
-- [ ] 10.4 Create campaign visualization interface
+- [ ] 20.3 Run load and latency tests
+  - Replay at 2× the sustained rate (20 items/s) and assert p95 processing latency (60 seconds text-only, 5 minutes with media), critical alert latency of 2 minutes or less, and no queue growth over 30 minutes
+  - Replay the burst profile (50 items/s for 15 minutes) and assert all queues drain within 10 minutes after it ends; use the result to size worker pools (design target: 35 items/s on the text path)
+  - _Requirements: 14.1, 19.1, 19.2_
 
-  - Start with simple network visualization using vis.js (easier than D3.js)
-  - Implement basic node and edge styling based on account properties
-  - Add simple graph interaction controls (zoom, pan, selection)
-  - Consider D3.js later for advanced custom visualizations if needed
-  - _Requirements: 6.2, 6.4_
+- [ ] 21. Security review
+  - Run authorization tests across all endpoints (role boundaries and VIP scope), the SSRF suite, masked-value leakage tests, dependency scanning, and a secrets audit; fix findings before the MVP release
+  - _Requirements: 13.6, 17.2, 8.4_
 
-- [ ] 11. Implement system monitoring and observability
-- [ ] 11.1 Set up metrics collection and monitoring
+---
 
-  - Configure Prometheus for system metrics collection
-  - Implement custom metrics for business logic monitoring
-  - Create Grafana dashboards for operational visibility and incident trends
-  - Add alerting rules for system health and performance
-  - _Requirements: 1.1, 9.1_
+## Post-MVP Backlog (not scheduled)
 
-- [ ] 11.2 Implement logging and tracing
+- [ ] 22. Additional sources (each needs a connector, fixtures, contract tests, and a ToS review)
+  - X API v2 connector (requires a paid tier)
+  - Facebook Pages and Instagram Business owned-account comments and mentions, plus Instagram hashtag search
+  - YouTube Data API comments connector
+  - Discord bot for invited servers
+  - Pastebin Scraping API (PRO account plus whitelisted IP)
+  - _Requirements: 2.3_
 
-  - Set up structured logging with ELK stack integration
-  - Implement distributed tracing with Jaeger
-  - Create log aggregation and search capabilities
-  - Add error tracking and notification system
-  - _Requirements: 8.4, 9.1_
+- [ ] 23. Detection upgrades
+  - Fine-tune a MuRIL/XLM-R threat-intent classifier on analyst plus LLM labels; keep the LLM only for the uncertainty band
+  - Add synthetic-media detection as a labelled signal only
+  - Add RFC 3161 trusted timestamps for evidence manifests
+  - Support additional Indic languages
+  - _Requirements: 5.4, 7.6, 13.2_
 
-- [ ] 12. Create comprehensive test suite
-- [ ] 12.1 Implement unit tests for all modules
-
-  - Write unit tests for analysis modules with mock data
-  - Create tests for API endpoints with proper mocking
-  - Build tests for data models and database operations
-  - Add tests for utility functions and helper classes
-  - _Requirements: All requirements_
-
-- [ ] 12.2 Build integration and end-to-end tests
-
-  - Create integration tests for complete data processing pipeline
-  - Build end-to-end tests for user workflows in dashboard
-  - Implement performance tests for high-volume scenarios
-  - Add security tests for authentication and authorization
-  - _Requirements: All requirements_
-
-- [ ] 13. Deploy and configure production environment
-- [ ] 13.1 Set up production infrastructure
-
-  - Configure production deployment with Docker and Kubernetes
-  - Set up load balancing and auto-scaling policies
-  - Implement backup and disaster recovery procedures
-  - Add security hardening and compliance measures
-  - _Requirements: 1.1, 8.4_
-
-- [ ] 13.2 Configure monitoring and alerting in production
-  - Set up production monitoring with proper alert thresholds
-  - Configure log aggregation and error tracking
-  - Implement health checks and uptime monitoring
-  - Add performance monitoring and capacity planning
-  - _Requirements: 9.1, 9.5_
+- [ ] 24. Platform upgrades (only when the documented triggers are hit)
+  - SMS alert channel
+  - OpenSearch/Elasticsearch for search
+  - Neo4j for graph queries
+  - OpenTelemetry tracing and Loki logs
+  - Redis-backed rate limiting when the API runs more than one instance
+  - Kubernetes deployment with HA and backups/disaster recovery
+  - _Requirements: 14.2, 12.5, 19.4_
