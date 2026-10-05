@@ -130,6 +130,7 @@ async def test_replay_publishes_in_order() -> None:
     items = generate(config)
 
     async with broker_channel(os.environ["AEGIS_TEST_RABBITMQ_URL"]) as channel:
+        queue = await channel.declare_queue(ITEMS_RAW, durable=True, arguments={"x-queue-type": "quorum"})
         count = await replay_items(
             items,
             Producer(channel),
@@ -137,7 +138,6 @@ async def test_replay_publishes_in_order() -> None:
         )
         assert count == 3
 
-        queue = await channel.declare_queue(ITEMS_RAW, durable=True, arguments={"x-queue-type": "quorum"})
         received = []
         for _ in range(3):
             message = await queue.get(fail=False, timeout=5)
