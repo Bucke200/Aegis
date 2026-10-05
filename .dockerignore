@@ -1,6 +1,9 @@
+# VCS and CI
 .git
 .github
 .gitignore
+
+# Python
 .venv
 venv
 env
@@ -8,22 +11,34 @@ __pycache__
 **/__pycache__
 *.pyc
 *.pyo
+*.pyd
+*.egg-info
 .pytest_cache
 .mypy_cache
 .ruff_cache
 .coverage
 htmlcov
+
+# Node
+frontend
+
+# Not needed inside the image
 docs
+deploy
+reports
+data
 tests
 scripts
 logs
 *.log
+
+# Local environment
 .env
 .env.*
 !.env.example
-!.env.template
-*.md
-!README.md
-storage/files
-storage/screenshots
-storage/media
+
+# Build context noise
+Dockerfile
+.dockerignore
+docker-compose.yml
+Makefile

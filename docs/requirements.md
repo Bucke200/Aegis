@@ -97,7 +97,7 @@ The Aegis VIP Threat & Misinformation Monitoring Platform is a near-real-time in
 1. WHEN analyzing text THEN the system SHALL classify threat intent as exactly one of these canonical labels, used verbatim in storage, UI, and evaluation: `none`, `criticism`, `harassment` (abuse or harassment), `violent_threat`, `incitement`, `doxxing`. This classification SHALL be separate from sentiment
 2. WHEN analyzing text THEN the system SHALL support English, Hindi (Devanagari and romanized), and code-mixed Hindi-English
 3. WHEN the first-stage filter scores an item below its configured threshold THEN the system SHALL skip later, more expensive stages for that item
-4. WHERE the LLM stage is enabled, WHEN an item passes the first-stage filter and the daily cost budget is not exhausted THEN the system SHALL classify it with an LLM that returns structured output with a rationale. WHERE a trained intent classifier is deployed (post-MVP), only items whose classifier score falls in the configured uncertainty band SHALL be sent to the LLM
+4. WHERE the LLM stage is enabled, WHEN an item passes the first-stage filter and the daily cost budget is not exhausted THEN the system SHALL classify it with an LLM that returns structured output with a rationale. The daily budget SHALL be shared across all worker instances so that the same total applies regardless of how many run. WHERE a trained intent classifier is deployed (post-MVP), only items whose classifier score falls in the configured uncertainty band SHALL be sent to the LLM
 5. WHEN a detection is produced THEN the system SHALL record detector name, model version, score, and the text spans that triggered it
 6. WHEN no threat-class signal is present on an item (it expresses criticism, negativity, or toxicity without threat intent) THEN the system SHALL NOT create an incident above low severity, even when toxicity detectors fire
 
@@ -124,7 +124,7 @@ The Aegis VIP Threat & Misinformation Monitoring Platform is a near-real-time in
 
 #### Acceptance Criteria
 
-1. WHEN an item contains images THEN the system SHALL compute perceptual hashes and an embedding and compare them with the VIP's reference media and previously seen media
+1. WHEN an item contains images THEN the system SHALL compute perceptual hashes and an embedding and compare them with the VIP's reference media and previously seen media, regardless of whether the item already references a VIP by text, so that a VIP photo posted without naming the VIP is still linked
 2. WHEN a match is found to media first seen in a different context (earlier date or different source) THEN the system SHALL flag possible repurposed media and show the earliest known occurrence
 3. WHEN an image contains text THEN the system SHALL extract it with OCR (English and Devanagari) and pass it to text threat detection
 4. WHEN an item contains video THEN the system SHALL extract keyframes and analyze them as images
@@ -167,7 +167,7 @@ The Aegis VIP Threat & Misinformation Monitoring Platform is a near-real-time in
 4. WHEN creating an incident THEN the system SHALL group all detections for the same item into one incident (or, for impersonation, the same account and VIP, per Req 6.8, merging any pre-existing incident for an attached item per Req 6.9) AND SHALL link it to an existing campaign where applicable
 5. WHEN an incident is created THEN the system SHALL store a human-readable explanation of why it was flagged
 6. WHEN scoring weights or thresholds change THEN the system SHALL version the scoring configuration and record which version scored each incident
-7. WHEN an item joins a confirmed campaign or its reach grows by an order of magnitude THEN the system SHALL re-score it, create an incident if the new score crosses the incident threshold, update the severity of an existing incident unless an analyst has set it manually, and record the re-score with its trigger
+7. WHEN an item joins a confirmed campaign, its reach grows by an order of magnitude, or its media analysis completes (adding OCR text, a reference-media link, or a repurposed-media finding) THEN the system SHALL re-score it, create an incident if the new score crosses the incident threshold, update the severity of an existing incident unless an analyst has set it manually, and record the re-score with its trigger
 
 ### Requirement 11: Real-Time Dashboard
 
@@ -188,7 +188,7 @@ The Aegis VIP Threat & Misinformation Monitoring Platform is a near-real-time in
 
 #### Acceptance Criteria
 
-1. WHEN using filters THEN the system SHALL allow filtering by VIP, threat type, severity, status, platform, assignee, campaign, language, and date range
+1. WHEN using filters THEN the system SHALL allow filtering by VIP, threat type, severity, status, platform, assignee, campaign, language, and date range; the threat-type filter SHALL use the canonical taxonomy defined in the design (the six intent labels plus impersonation, solicitation, leak, repurposed media, and campaign)
 2. WHEN searching THEN the system SHALL provide full-text search over item text, OCR-extracted text, and account names in all supported languages
 3. WHEN multiple filters are applied THEN the system SHALL combine different filters with AND and multiple values within one filter with OR
 4. WHEN results match a search THEN the system SHALL highlight the matching terms
@@ -203,7 +203,7 @@ The Aegis VIP Threat & Misinformation Monitoring Platform is a near-real-time in
 
 1. WHEN an incident is created or re-scored at or above the configured capture severity (default: medium) THEN the system SHALL capture the raw payload, a rendered screenshot, original media, and a snapshot of the author account (for impersonation incidents: the suspect's profile page, avatar, and account snapshot, plus each attached item as it arrives)
 2. WHEN capturing evidence THEN the system SHALL compute a SHA-256 hash for each artifact and produce a manifest containing the hashes, UTC capture time, source URL, and capturer version; when more evidence is captured for the same incident later, the system SHALL write a new manifest version chained to the previous one rather than modify it
-3. WHEN storing evidence THEN the system SHALL use object storage with versioning and a write-once retention lock for the configured retention period
+3. WHEN storing evidence THEN the system SHALL use object storage with versioning and a write-once retention lock for the configured retention period; the lock SHALL be in governance mode so that deletion on retention expiry or VIP offboarding remains possible through a dedicated, audited retention role
 4. WHEN evidence is viewed, downloaded, or exported THEN the system SHALL record the access in a chain-of-custody log
 5. WHEN evidence is exported THEN the system SHALL produce a package (summary report, artifacts, manifest) that a third party can verify against the recorded hashes
 6. WHEN rendering pages for capture THEN the system SHALL use an isolated, sandboxed browser that holds no analyst credentials, AND SHALL retry failed captures with backoff and record failures
@@ -268,7 +268,7 @@ The Aegis VIP Threat & Misinformation Monitoring Platform is a near-real-time in
 1. WHEN items are not linked to any VIP or incident THEN the system SHALL delete them after a configurable period (default 30 days)
 2. WHEN retention for incidents and evidence expires (default 1 year) THEN the system SHALL delete them unless a legal hold is set
 3. The system SHALL encrypt data in transit (TLS) and at rest (database and object storage)
-4. WHEN monitoring of a VIP ends THEN the system SHALL support deletion of that VIP's data, excluding items under legal hold
+4. WHEN monitoring of a VIP ends THEN the system SHALL support deletion of that VIP's data, including captured evidence through the audited retention role, excluding items under legal hold
 5. The system SHALL document its purpose and lawful basis for processing and the terms-of-service review for each source, consistent with applicable law including India's Digital Personal Data Protection Act, 2023
 
 ### Requirement 19: Performance, Reliability, and Observability
@@ -282,3 +282,4 @@ The Aegis VIP Threat & Misinformation Monitoring Platform is a near-real-time in
 3. WHEN a single connector or worker fails THEN other sources and detectors SHALL continue operating, AND queued items SHALL survive service restarts
 4. The system SHALL expose metrics for per-source ingest rate, queue depth, per-stage latency, detector error rate, and alert delivery success, plus structured logs and health endpoints for every service
 5. WHEN queue backlog, connector staleness, dead-letter growth, or disk usage exceeds configured thresholds THEN the system SHALL raise an operational alert
+6. The system SHALL have a documented, tested backup and restore procedure for the database and object storage, with an owner and agreed recovery-point and recovery-time objectives before the MVP release

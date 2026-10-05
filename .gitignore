@@ -69,10 +69,12 @@ Thumbs.db
 logs/
 *.log
 
-# Storage
-storage/files/
-storage/screenshots/
-storage/media/
+# Evaluation outputs (baseline.json is committed)
+reports/eval/report.json
+reports/eval/report.md
+
+# Model weights cache
+models/
 
 # Database
 *.db

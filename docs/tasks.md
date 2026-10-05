@@ -9,24 +9,26 @@ Ordering principle: build a thin end-to-end slice first. The slice is replay dat
 ## Phase 0: Foundations
 
 - [ ] 1. Project skeleton and developer environment
-  - Apply the migration stance from the design: tag `legacy-v0` and branch `legacy/v0`, then delete the legacy packages, their tests, `start.py`, and `.flake8` from `main`
+  - Apply the migration stance from the design: tag `legacy-v0` and branch `legacy/v0`, then delete the legacy packages, their tests, `main.py`, `start.py`, `scripts/`, `.flake8`, and `.env.template` from `master`
   - Create the modular-monolith package layout (`aegis/common`, `collectors`, `pipeline`, `detectors`, `evidence`, `alerting`, `api`, `eval`), plus `frontend/`, `migrations/`, `deploy/`, `docs/`, `data/golden/`, `reports/eval/`
-  - Retarget `pyproject.toml` (core dependencies only; optional groups `collectors`, `media`, `capture` added by the tasks that need them), `uv.lock`, `Dockerfile`, `.dockerignore`, `Makefile`, `README.md`, `.env.example`, and pytest config to `aegis/`
-  - Write Docker Compose with Postgres 16 + pgvector, RabbitMQ, MinIO, api, worker, and frontend services; build a single backend image with multiple entrypoints
+  - Retarget `pyproject.toml` and `uv.lock`: `package = true` with a hatchling backend and `[project.scripts]` entrypoints (`aegis-api`, `aegis-normalizer`, `aegis-worker`, `aegis-media-worker`, `aegis-capture`, `aegis-admin`, `aegis-eval`); core dependencies only, with optional dependency groups (`collectors`, `analysis`, `media`, `capture`, `dev`) added by the tasks that need them. Declare compatible ranges, not exact pins, and use `uv sync --frozen` everywhere.
+  - Write the `Dockerfile` on `python:3.12-slim` with four role targets (`api`, `analysis`, `media`, `capture`) and retarget `.dockerignore`, `Makefile`, `README.md`, `.env.example`, and pytest config to `aegis/`
+  - Write `docker-compose.yml` at the repository root with Postgres 16 + pgvector (`pgvector/pgvector:pg16`), RabbitMQ, MinIO, `api`, and `worker` services, plus `capture` and `clamav` behind a compose profile; the frontend service is added in task 9.4
+  - Add a root `alembic.ini` pointing at `migrations/`; the first migration enables the `vector` and `pg_trgm` extensions
   - Load configuration with pydantic-settings; commit `.env.example`; keep secrets out of the repository
-  - Pin Python 3.12: `requires-python = ">=3.12,<3.13"` in `pyproject.toml`, a `python:3.12-slim` base image, and the same version in CI
+  - Pin Python 3.12: `requires-python = ">=3.12,<3.13"` in `pyproject.toml`, `python:3.12-slim` images, and the same version in CI
   - Set up structured logging (structlog JSON) and `/health` endpoints from day one
-  - Set up CI: ruff, mypy, pytest, frontend lint/build, pip-audit / npm audit
+  - Set up CI: ruff, mypy, pytest, and pip-audit; include a smoke test so the suite is never empty. Retarget `cd.yml` to build the four role targets and run only after CI is green. The frontend checks and the eval gate are added when tasks 9.4 and 18.2 land.
   - Done when: `docker compose up` brings every service up healthy and CI passes on the skeleton
   - _Requirements: 19.3, 19.4_
 
 - [ ] 2. Data model and storage
 - [ ] 2.1 Create database schema and migrations
-  - Implement every table in the design data model (VIPs and reference data, accounts/items/media, detections/incidents/events/notes, campaigns/edges, evidence/custody, alerts, labels/suppressions, users/scopes, audit log, outbox, scoring configs, saved searches)
-  - Write Alembic migrations with UUID primary keys, the composite primary keys listed under "Keys" in the design, and unique and search indexes (dedup key, GIN tsvector, trigram, HNSW vectors)
+  - Implement every table in the design data model (VIPs and reference data, accounts/items/media, connector cursors and source health, detections/incidents/events/notes, campaigns/edges, evidence/custody, alerts, labels/suppressions, users/scopes, audit log, outbox, scoring configs, saved searches, LLM budget usage)
+  - Write Alembic migrations that first run `CREATE EXTENSION IF NOT EXISTS vector, pg_trgm`, then create UUID primary keys, the composite and UUID keys listed under "Keys" in the design, and unique and search indexes (dedup key, GIN tsvector, trigram, HNSW vectors)
   - Make `audit_log` insert-only at the database grant level
-  - Implement incident subjects (`item` and `account`) with their check constraints and partial unique indexes, `incident_items`, `account_vip_scores`, detection scope constraints, the `custody_log` target check constraint, `incidents.merged_into_id` (self-FK, only allowed on item incidents pointing at an account incident, enforced by a check plus trigger), `incidents.below_threshold`, and the `rescore`/`item_attached`/`merged_into`/`campaign_linked` event types, all as described in the design
-  - Tests: migration up/down; constraint tests (dedup uniqueness, one item incident per item, one open account incident per (account, VIP), detection scope rules)
+  - Implement incident subjects (`item` and `account`) with their check constraints and partial unique indexes, `incident_items`, `account_vip_scores`, detection scope constraints, `detections.input_variant` with its `(item_id, detector, model_version, input_variant)` unique index, the `custody_log` target check constraint, `incidents.merged_into_id` (self-FK, only allowed on item incidents pointing at an account incident, enforced by a check plus trigger), `incidents.below_threshold`, `incidents.legal_hold` and `items.legal_hold`, `campaign_members.member_type` with its check constraint and unique indexes, `vips.scoring_config_version` (FK to `scoring_configs.version`), the `incidents.threat_types` taxonomy values, and the `rescore`/`item_attached`/`merged_into`/`campaign_linked` event types, all as described in the design
+  - Tests: migration up/down; constraint tests (dedup uniqueness, one item incident per item, one open account incident per (account, VIP), detection scope rules and the input-variant uniqueness, the `merged_into_id` item-to-account rule including the trigger, `below_threshold` semantics, the `custody_log` exactly-one-target rule, and `campaign_members` exactly-one-member rule)
   - Done when: migrations apply cleanly on an empty database and the constraint tests pass
   - _Requirements: 1.1, 1.2, 3.3, 6.8, 10.6, 13.2, 15.2, 17.3_
 
@@ -39,14 +41,14 @@ Ordering principle: build a thin end-to-end slice first. The slice is replay dat
 
 - [ ] 2.3 Configure object storage
   - Write a MinIO client wrapper that uploads with a computed SHA-256 and handles download and presigned URLs
-  - Configure the evidence bucket with versioning and object lock (compliance mode, configurable retention), and the media bucket separately
-  - Tests: upload/download, hash correctness, locked objects cannot be deleted
-  - Done when: an evidence object cannot be overwritten or deleted inside its retention period
+  - Configure the evidence bucket with versioning and object lock in governance mode (configurable retention), the media bucket separately, and a dedicated retention role that can bypass the lock before expiry with separate credentials; every bypass writes to `audit_log`
+  - Tests: upload/download, hash correctness, a normal credential cannot delete a locked object or overwrite a version, and a bypass through the retention role succeeds and is audited
+  - Done when: an evidence object cannot be overwritten or deleted inside its retention period except through the audited retention role
   - _Requirements: 13.3_
 
 - [ ] 3. Messaging backbone
 - [ ] 3.1 Set up RabbitMQ topology and worker base classes
-  - Declare quorum queues `items.raw`, `items.normalized`, `media.analyze`, `evidence.capture`, `analysis.account_embedded`; the `events.incidents` and `events.accounts` topic exchanges and the `events.config` fanout exchange (per-instance exclusive queues for cache invalidation plus the shared durable `config.recompute` queue); delayed-retry queues; a DLQ per queue; priority on `items.normalized`
+  - Declare quorum queues `items.raw`, `items.normalized`, `media.analyze`, `media.analyzed`, `evidence.capture`, `analysis.account_embedded`; the `events.incidents` and `events.accounts` topic exchanges and the `events.config` fanout exchange (per-instance exclusive queues for cache invalidation plus the shared durable `config.recompute` queue); delayed-retry queues; a DLQ per queue; priority on `items.normalized` with `x-max-priority: 2`
   - Implement producer (publisher confirms) and consumer (ack after DB commit, bounded retries with backoff, then DLQ) base classes
   - Build a DLQ inspection and re-drive CLI
   - Tests: poison message lands in DLQ after N retries; messages survive a broker restart
@@ -66,12 +68,18 @@ Ordering principle: build a thin end-to-end slice first. The slice is replay dat
   - Done when: the generator produces a reproducible dataset (seeded) and replay drives the pipeline at a configurable rate
   - _Requirements: 2.2, 19.1_
 
-- [ ] 4.2 Build the golden evaluation dataset and runner
-  - Write annotation guidelines covering intent classes, severity examples, and edge cases (satire, quotes, news reporting of threats)
-  - Label an initial set (target 300+ items per threat class across English, Hindi, and Hinglish, plus synthetic impersonation and leak sets)
-  - Build the eval CLI in `aegis/eval`: `python -m aegis.eval run --golden data/golden/ --out reports/eval/` writes a per-detector, per-language report (JSON and Markdown); add `make eval` as a wrapper; commit the first report as `reports/eval/baseline.json`
-  - Done when: `make eval` produces a per-detector report from the golden set
+- [ ] 4.2 Build the evaluation harness and synthetic golden set
+  - Build the eval CLI in `aegis/eval`: `python -m aegis.eval run --golden data/golden/ --out reports/eval/` writes a per-detector, per-language report (JSON and Markdown), and `python -m aegis.eval gate --baseline reports/eval/baseline.json --tolerance 0.02` exits non-zero on a regression; add `make eval` and `make eval-gate` as wrappers
+  - Seed `data/golden/` with a small reproducible synthetic set so the CLI and gate are exercised before real detectors exist; commit the first report as `reports/eval/baseline.json`
+  - Done when: `make eval` produces a report from the synthetic set and `make eval-gate` fails on a seeded regression and passes otherwise
   - _Requirements: 16.2_
+
+- [ ] 4.3 Build the labelled golden set (starts now; must complete before task 7.2 tunes the calibrator)
+  - Write annotation guidelines covering intent classes, severity examples, and edge cases (satire, quotes, news reporting of threats); name the labellers and their weekly capacity
+  - Label an initial set: 300+ items per threat class per language across English, Hindi, and Hinglish (six canonical intent classes, up to ~5,400 items) plus synthetic impersonation and leak sets
+  - Have a second reviewer check each labelled item before it enters the set
+  - Done when: `make eval` reports per-detector, per-language precision and recall from the reviewed set, and the set is complete enough to fit the isotonic calibrator (task 7.2) and to gate CI (task 18.2)
+  - _Requirements: 16.2, 16.3_
 
 ---
 
@@ -99,45 +107,48 @@ Ordering principle: build a thin end-to-end slice first. The slice is replay dat
 - [ ] 6. Normalization, deduplication, and mention resolution
 - [ ] 6.1 Build the normalizer worker
   - Validate against the schema (invalid items go to the DLQ); compute the dedup key; upsert account and item; keep the raw payload; track edits and deletions in `item_versions`
-  - Detect language and script (fastText lid or lingua), including romanized-Hindi detection
+  - Detect language and script with `lingua-language-detector`, including romanized-Hindi detection (fastText is not used: it has no Python 3.12 wheels)
   - On engagement updates, append to `item_engagement_snapshots`, keep `items.engagement` as the latest value, and trigger a re-score when reach reaches 10 × max(`scored_reach`, 10)
   - Tests: duplicate items update engagement only and append a snapshot; an edit creates a version row
   - Done when: replaying the same dataset twice creates no new items or incidents
   - _Requirements: 3.1, 3.2, 3.3, 3.4, 3.5_
 
-- [ ] 6.2 Build VIP mention resolution
+- [ ] 6.2 Build VIP mention resolution and the media fork
   - Build an Aho-Corasick automaton from aliases; match original, confusables-normalized, and transliterated text (IndicXlit); match handles and hashtags
   - Apply context-keyword disambiguation for ambiguous aliases; record match confidence per the design's match-confidence table; support multiple VIPs per item
-  - Tests: Hinglish and Devanagari variants, homoglyph-obfuscated names, common-name collisions
-  - Done when: mention recall and precision on the golden set meet the agreed targets
+  - Fork **every** item that carries media to `media.analyze`, whether or not the item already has a text VIP link, and consume `media.analyzed` in the analysis worker to run text detection on OCR output and re-score the item
+  - Tests: Hinglish and Devanagari variants, homoglyph-obfuscated names, common-name collisions; an item with a VIP-referencing image but no VIP text mention reaches the media worker and gains a `match_source = media` VIP link
+  - Done when: mention recall and precision on the golden set meet the agreed targets, and the media fork is exercised end-to-end
   - _Requirements: 4.1, 4.2, 4.3, 4.4_
 
 - [ ] 7. Text threat detection cascade
 - [ ] 7.1 Implement Stage 1: lexicons and multilingual toxicity
-  - Curate versioned threat/abuse/specificity lexicons for English, Hindi, and Hinglish; integrate the multilingual toxicity model; apply the stage-1 threshold to skip later stages
-  - Record detector name, model version, score, and spans on every detection
+  - Curate versioned threat/abuse/specificity lexicons for English, Hindi, and Hinglish; integrate the multilingual toxicity model into the analysis image (weights baked or cached per the design); apply the stage-1 threshold to skip later stages
+  - Record detector name, model version, `input_variant`, score, and spans on every detection
   - _Requirements: 5.2, 5.3, 5.5_
 
-- [ ] 7.2 Implement Stage 2: LLM threat-intent classifier
+- [ ] 7.2 Implement Stage 2: LLM threat-intent classifier (depends on the reviewed golden set from 4.3)
   - Build the structured-output prompt and JSON schema (intent using the six canonical labels, solicitation, target, specificity, confidence, rationale, spans) with schema validation and retry on malformed output
   - Run it on every VIP-linked item that passes Stage 1 (no uncertainty-band gating at MVP)
-  - Request per-class `intent_probs`; compute `threat_prob` (harassment + violent_threat + incitement + doxxing) and calibrate it with an isotonic calibrator fitted on the golden set; store the label and the calibrated `threat_prob` as the detection score
-  - Enforce the daily token budget; fall back to Stage 1 scores and a `degraded` tag when the budget is exhausted or the provider fails
+  - Request per-class `intent_probs`; compute `threat_prob` (harassment + violent_threat + incitement + doxxing) and calibrate it with an isotonic calibrator fitted on the reviewed golden set; store the label and the calibrated `threat_prob` as the detection score, and refit the calibrator whenever the prompt or model changes
+  - Enforce the daily token budget through the shared `llm_budget_usage` table so all worker instances see one total; fall back to Stage 1 scores and set `detections.details.degraded = true` when the budget is exhausted or the provider fails
   - Done when: intent-classification precision and recall on the golden set meet targets, and criticism-only items never score above low
   - _Requirements: 5.1, 5.4, 5.5, 5.6_
 
 - [ ] 8. Scoring and incident creation
 - [ ] 8.1 Build the scoring engine
-  - Implement noisy-OR combination, reach and VIP multipliers, severity bands, critical overrides, the threat-class-based criticism cap (toxicity alone never lifts it), and suppression-rule checks
+  - Implement noisy-OR combination, reach and VIP multipliers, half-open severity bands (`[0.30, 0.55)`, `[0.55, 0.75)`, `[0.75, 0.90)`, `≥ 0.90`), critical overrides, the threat-class-based criticism cap (toxicity alone never lifts it), and suppression-rule checks
   - Seed `scoring_config` v1 with the detector reliability weights from the design and a default capture severity of medium
   - Score each item once per linked VIP (VIP-scoped detections plus null-VIP detections, with `mention_mult` from match confidence) and take the max; apply the criticism clamp to the score (`min(risk, 0.54)`), not only the severity
-  - Implement re-scoring: triggered by the reach rule from 6.1 now, by campaign membership once 16.3 lands, and by item attachment once 13.4 lands; never change a severity marked `severity_manual`; write a `rescore` incident event with the trigger and old/new values, and update `scored_reach`
+  - Consume one detection per `(item_id, detector, model_version, input_variant)`, relying on the unique index from 2.1 so a detector re-run after OCR never double-counts
+  - Implement re-scoring: triggered by the reach rule from 6.1 now, by `media.analyzed` (media analysis complete) once 14.3 lands, by campaign membership once 16.3 lands, and by item attachment once 13.4 lands; never change a severity marked `severity_manual`; write a `rescore` incident event with the trigger and old/new values, and update `scored_reach`
   - Version the scoring config; generate the explanation from a template
-  - Tests: table-driven cases for each band, each override, the clamp (including a high-confidence criticism item with high toxicity staying at ≤ 0.54), and re-scoring with and without a manual severity; an ambiguous-mention item scoring lower than an exact-mention one
+  - Tests: table-driven cases for each band including the inclusive lower and exclusive upper bounds, each override, the clamp (a high-confidence criticism item with high toxicity stays at ≤ 0.54), a media-completion re-score, and re-scoring with and without a manual severity; an ambiguous-mention item scoring lower than an exact-mention one
   - _Requirements: 5.6, 10.1, 10.2, 10.3, 10.5, 10.6, 10.7_
 
 - [ ] 8.2 Build the incident builder (item incidents)
   - Create one item incident per item grouping all item-scoped detections and inserting an `incident_vips` row for every VIP with risk ≥ 0.30; make creation idempotent; write the outbox event in the same transaction; enqueue evidence capture above the capture threshold
+  - Call the scorer as an in-process library from the analysis and media workers; the incident and its outbox row are written in the calling worker's transaction
   - Account incidents are built in 13.4; the schema from 2.1 already supports them
   - Done when: replaying the synthetic text dataset yields the expected item incidents and severities in Postgres
   - _Requirements: 10.4, 13.1_
@@ -147,7 +158,8 @@ Ordering principle: build a thin end-to-end slice first. The slice is replay dat
   - Set up FastAPI with JWT access tokens and rotating refresh tokens, Argon2id hashing, and TOTP MFA for admins
   - Enforce RBAC (Admin/Lead/Analyst/Viewer) with a per-VIP scope dependency applied to every query; add audit middleware and an in-process per-user rate limiter (single API instance at MVP)
   - Implement the per-VIP `can_reveal_sensitive` permission: Admin-only grant and revoke, never assignable to Viewers, audited
-  - Tests: an analyst cannot read incidents for an unassigned VIP through any endpoint
+  - User CRUD, scope assignment, and the admin bootstrap CLI are built in 9.5
+  - Tests: an analyst cannot read incidents for an unassigned VIP through any endpoint; an unauthenticated request is rejected on every route
   - _Requirements: 17.1, 17.2, 17.3, 17.4_
 
 - [ ] 9.2 Build incident endpoints
@@ -169,8 +181,16 @@ Ordering principle: build a thin end-to-end slice first. The slice is replay dat
   - Done when: the replayed dataset produces live incidents an analyst can triage end-to-end
   - _Requirements: 11.1, 11.2, 11.3, 11.4, 11.6, 15.1, 15.3, 15.4_
 
+- [ ] 9.5 Build user provisioning and the admin bootstrap
+  - Implement `/auth` (login, refresh, logout, MFA enrol and verify) and the Admin-only `/users` endpoints for user CRUD, VIP-scope assignment, and `can_reveal_sensitive` grant/revoke; every change is audited
+  - Provide an `aegis-admin` CLI to create the first admin (and reset credentials) so a fresh deployment is never locked out
+  - Tests: a fresh database can bootstrap an admin and log in; a Lead cannot grant reveal permission; a Viewer can never hold it
+  - Done when: an Admin can provision a user, scope them to VIPs, and grant or revoke reveal permission over the API
+  - _Requirements: 17.1, 17.2, 17.3_
+
 - [ ] 10. Evidence capture
 - [ ] 10.1 Build the sandboxed capture service
+  - Add the `capture` Compose service (the `capture` image target) plus the egress proxy, both behind a Compose profile until this task lands
   - Run Playwright (Python) in an isolated container with a fresh context per capture, a timeout, and an egress proxy that blocks private and metadata ranges
   - Capture raw payload, full-page screenshot, HTML, original media, and an account snapshot for item incidents; build the account-incident capture path now (profile page screenshot and HTML, avatar, account snapshot at creation, then each attached item as it arrives), exercised end-to-end once 13.4 lands; retry with backoff; record final failures on the incident
   - _Requirements: 13.1, 13.6_
@@ -193,7 +213,7 @@ Ordering principle: build a thin end-to-end slice first. The slice is replay dat
   - _Requirements: 14.3, 14.4, 14.6_
 
 - [ ] 11.2 Build delivery channels and tracking
-  - Implement SMTP email and a Slack app with an Acknowledge button; track delivery state; retry with backoff; escalate unacknowledged critical alerts to the secondary recipient
+  - Implement SMTP email and a Slack app with an Acknowledge button that calls `POST /alerts/{id}/acknowledge`; track delivery state; retry with backoff; escalate unacknowledged critical alerts to the secondary recipient
   - Done when: a critical incident from replay produces a Slack alert within 2 minutes of `collected_at` (p95 measured under load in task 20.3)
   - _Requirements: 14.1, 14.2, 14.5_
 
@@ -255,7 +275,8 @@ Ordering principle: build a thin end-to-end slice first. The slice is replay dat
 
 - [ ] 14. Media analysis
 - [ ] 14.1 Build the media worker and safe download
-  - Enforce size and type limits, MIME sniffing, ClamAV scanning, and SHA-256 dedup before storage
+  - Add the `clamav` Compose service; install `ffmpeg` in the `media` image; add the `models` volume and `make fetch-models` so OpenCLIP, PaddleOCR, and sentence-embedding weights are present at first use
+  - Enforce size and type limits, MIME sniffing, ClamAV scanning over TCP, and SHA-256 dedup before storage
   - _Requirements: 7.1, 13.1_
 
 - [ ] 14.2 Implement fingerprinting and matching
@@ -264,8 +285,9 @@ Ordering principle: build a thin end-to-end slice first. The slice is replay dat
   - _Requirements: 1.3, 7.1, 7.2_
 
 - [ ] 14.3 Implement OCR and video keyframes
-  - Run PaddleOCR (English and Devanagari) into `items.ocr_text` and re-run text detection on it
+  - Run PaddleOCR (English and Devanagari) into `items.ocr_text` and re-run text detection on it, writing detections with `input_variant = ocr_text`
   - Extract ffmpeg scene-change keyframes (capped per video) and analyze them as images
+  - Publish `media.analyzed` when an item's media jobs finish so the analysis worker re-scores it (the trigger wired in 8.1)
   - _Requirements: 7.3, 7.4_
 
 - [ ] 14.4 Integrate reverse image search
@@ -282,8 +304,8 @@ Ordering principle: build a thin end-to-end slice first. The slice is replay dat
   - _Requirements: 8.2, 8.3_
 
 - [ ] 15.3 Implement masking and reveal
-  - Encrypt detected values at the application level; return masked values from the API and UI; restrict reveal to permitted roles and audit every reveal; scrub values from logs and alerts
-  - Tests: no raw value appears in any API response, alert payload, or log line
+  - Build the application-level encryption key service here (versioned keys, rotation), encrypt detected values with it, return masked values from the API and UI, restrict reveal to permitted roles, audit every reveal, and scrub values from logs and alerts
+  - Tests: no raw value appears in any API response, alert payload, or log line; a rotated key can still decrypt older values
   - _Requirements: 8.4, 14.3_
 
 - [ ] 16. Coordinated campaign detection
@@ -293,6 +315,7 @@ Ordering principle: build a thin end-to-end slice first. The slice is replay dat
 
 - [ ] 16.2 Implement volume anomaly detection
   - Use a per-VIP same-hour-of-week median/MAD baseline and robust z-score with a minimum count; route spikes to campaign candidate review
+  - Until a VIP has 4 weeks of history, fall back to a global cross-VIP same-hour-of-week baseline and lower the confidence, per the design's cold-start rule
   - _Requirements: 9.3_
 
 - [ ] 16.3 Assemble campaigns
@@ -338,11 +361,12 @@ Ordering principle: build a thin end-to-end slice first. The slice is replay dat
 
 - [ ] 19. Data protection and retention
 - [ ] 19.1 Implement retention and offboarding jobs
-  - Delete unlinked items after 30 days and incidents/evidence after 1 year, with legal-hold exceptions; implement VIP offboarding deletion; make all periods configurable
+  - Delete unlinked items after 30 days (cascading to their detections, `item_vips`, engagement snapshots, versions, labels, and campaign members; deleting a `media` row only with its last referencing item) and incidents/evidence after 1 year, skipping rows with `legal_hold`; delete accounts with no VIP link, no incident, and no refresh for 1 year; implement VIP offboarding deletion; make all periods configurable
+  - Delete pre-expiry evidence only through the audited retention role from 2.3, so DPDP erasure and offboarding work while every bypass is logged
   - _Requirements: 18.1, 18.2, 18.4_
 
 - [ ] 19.2 Implement encryption
-  - Enable TLS between services; encrypt Postgres volumes; enable MinIO server-side encryption; manage keys for application-level encryption
+  - Enable TLS between services; encrypt Postgres volumes; enable MinIO server-side encryption; wire in the application-level key service built in 15.3
   - _Requirements: 18.3_
 
 - [ ] 19.3 Write data protection documentation
@@ -359,9 +383,16 @@ Ordering principle: build a thin end-to-end slice first. The slice is replay dat
   - _Requirements: 2.7, 11.5, 19.5_
 
 - [ ] 20.3 Run load and latency tests
-  - Replay at 2× the sustained rate (20 items/s) and assert p95 processing latency (60 seconds text-only, 5 minutes with media), critical alert latency of 2 minutes or less, and no queue growth over 30 minutes
-  - Replay the burst profile (50 items/s for 15 minutes) and assert all queues drain within 10 minutes after it ends; use the result to size worker pools (design target: 35 items/s on the text path)
+  - At the sustained design rate (10 items/s), assert the p95 processing-latency targets (60 seconds text-only, 5 minutes with media) and the critical-alert latency target (2 minutes or less); these targets are defined at the sustained rate, not at 2×
+  - At 2× the sustained rate (20 items/s), assert no queue growth over 30 minutes and record how latency degrades; size the worker pools from the result
+  - Size the media path for **every** media-bearing item (the all-media fork from 6.2), and record the measured media share; if the 10-minute drain target cannot be met, apply the design's fallback gate before launch
+  - Replay the burst profile (50 items/s for 15 minutes) and assert all queues drain within 10 minutes after it ends; keep the design target of 35 items/s on the text path
   - _Requirements: 14.1, 19.1, 19.2_
+
+- [ ] 20.4 Implement backup and restore
+  - Automate Postgres backups and MinIO replication, write the restore runbook in `docs/`, and run a timed restore into a fresh environment
+  - Done when: a documented, timed restore meets the agreed recovery-point and recovery-time objectives (Req 19.6)
+  - _Requirements: 19.3, 19.6_
 
 - [ ] 21. Security review
   - Run authorization tests across all endpoints (role boundaries and VIP scope), the SSRF suite, masked-value leakage tests, dependency scanning, and a secrets audit; fix findings before the MVP release

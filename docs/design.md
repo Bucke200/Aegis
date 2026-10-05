@@ -28,20 +28,25 @@ PostgreSQL is the single system of record. It also handles full-text search (FTS
 
 - **Legacy code:**
   - Before removal, the current state is preserved as tag `legacy-v0` and branch `legacy/v0`.
-  - `shared/`, `messaging/`, `ingestion/`, `scraping/`, `storage/`, `api/`, `processing/` and their tests are then deleted from `main`, along with `start.py` and `.flake8`.
+  - `shared/`, `messaging/`, `ingestion/`, `scraping/`, `storage/`, `api/`, `processing/` and their tests are then deleted from `master`, along with `main.py`, `start.py`, `scripts/`, `.flake8`, and `.env.template`.
   - Nothing is imported from them. The old initial schema and message format only serve as reference when writing tasks 2.1 and 2.2.
 - **Tooling retargeted to `aegis/`:**
-  - `pyproject.toml` with `requires-python = ">=3.12,<3.13"` and a regenerated `uv.lock`
-  - `Dockerfile` (`python:3.12-slim`, one image, multiple entrypoints)
-  - `docker-compose.yml`: Postgres 16 + pgvector, RabbitMQ, and MinIO, plus the api and worker services. Elasticsearch and Redis are removed.
-  - CI: ruff, mypy, pytest, and pip-audit. The frontend checks and the eval gate are added when tasks 9.4 and 18.2 land.
-  - `.env.example`, `Makefile`, `README.md`, pytest config, and `.dockerignore`
-- **Dependencies:** the target set is added per phase, so the base image stays small until a task needs more. Heavy ML and browser dependencies go in optional groups.
-  - **Core (Phase 0–1):** fastapi, uvicorn, pydantic, pydantic-settings, sqlalchemy, alembic, psycopg (with pool) or asyncpg, pgvector, aio-pika, minio, structlog, prometheus-client, tenacity, pybreaker, httpx (needed for the GitHub API, manual URL fetch, and LLM calls), pyjwt, argon2-cffi, pyotp, pyahocorasick
-  - **`collectors` group:** telethon
-  - **`media` group:** imagehash, open-clip-torch (brings torch transitively), paddleocr, datasketch, sentence-transformers
-  - **`capture` group:** playwright
-  - **Removed:** elasticsearch, redis, scrapy, selenium, transformers (direct), spacy, opencv-python, celery, tweepy, python-telegram-bot, python-jose, passlib, aiofiles
+  - `pyproject.toml` with `requires-python = ">=3.12,<3.13"`, a hatchling build backend, `package = true`, and `[project.scripts]` entrypoints (`aegis-api`, `aegis-normalizer`, `aegis-worker`, `aegis-media-worker`, `aegis-capture`, `aegis-admin`, `aegis-eval`), plus a regenerated `uv.lock`
+  - `Dockerfile`: `python:3.12-slim`, **one Dockerfile with four role targets** — `api`, `analysis`, `media`, and `capture` — selected per Compose service. The `api` image stays lean; `analysis` is the general worker image (collectors, normalizer, analysis, and alerting) and adds the toxicity runtime and the `collectors` group; `media` adds the vision stack and ffmpeg; `capture` adds Playwright and Chromium.
+  - `docker-compose.yml` at the **repository root** (the CI compose job and the local workflow both reference that path). `deploy/` holds Grafana dashboards and Prometheus rules only. Services: Postgres 16 + pgvector (`pgvector/pgvector:pg16`), RabbitMQ, MinIO, `api`, `worker`, and reserved `capture` and `clamav` services behind a Compose profile. The frontend is added when task 9.4 lands.
+  - CI: ruff, mypy, pytest, and pip-audit, plus a smoke test so the skeleton suite is never empty. The frontend checks and the eval gate are added when tasks 9.4 and 18.2 land.
+  - CD (`.github/workflows/cd.yml`) is retargeted to build the four image targets and to run only after CI is green.
+  - `.env.example`, `.gitignore`, `Makefile`, `README.md`, pytest config, and `.dockerignore`
+- **Dependency pinning:** `pyproject.toml` declares compatible ranges (not exact pins); `uv.lock` provides reproducibility, and CI and the Docker build use `uv sync --frozen`. This avoids the exact-pin trap that excluded a Python version from resolution.
+- **Dependencies:** the target set is added per image role, so each image stays as small as its role allows. Heavy ML and browser dependencies never enter the `api` image.
+  - **`core` (all roles):** fastapi, uvicorn, pydantic, pydantic-settings, sqlalchemy, alembic, psycopg[binary,pool], pgvector, aio-pika, minio, structlog, prometheus-client, tenacity, pybreaker, httpx (GitHub API, manual URL fetch, LLM calls), pyjwt, argon2-cffi, pyotp, pyahocorasick, datasketch, networkx, python-multipart, reportlab
+  - **`collectors` (collector and worker roles):** telethon
+  - **`analysis` (analysis worker):** torch (CPU), transformers, scikit-learn (isotonic calibration), lingua-language-detector (language/script ID), confusable-homoglyphs; the multilingual toxicity model weights are vendored or cached (see Media Analysis / model weights)
+  - **`media` (media worker):** imagehash, open-clip-torch, paddleocr, sentence-transformers; plus the `ffmpeg` system package
+  - **`capture` (capture service):** playwright
+  - **`dev`:** pytest, pytest-asyncio, ruff, mypy, coverage, respx
+  - **Removed:** elasticsearch, redis, scrapy, selenium, spacy, opencv-python, celery, tweepy, python-telegram-bot, python-jose, passlib, aiofiles, fasttext (no Python 3.12 wheels; `lingua-language-detector` replaces it)
+  - `transformers` is kept but only inside the `analysis` group, never in `core`.
 
 ## Architecture
 
@@ -62,7 +67,8 @@ graph LR
         AW[Analysis worker: mention resolution, text, impersonation pre-screen and final scoring, leak]
         QM[(queue: media.analyze)]
         MW[Media worker: hashing, embeddings incl. account avatars and bios, OCR, keyframes]
-        SC[Scorer + incident builder]
+        QMA[(queue: media.analyzed)]
+        SC[Scorer + incident builder - in-process library]
         CD[Campaign detector - scheduled]
         QE[(queue: evidence.capture)]
         EC[Evidence capture - sandboxed browser]
@@ -88,13 +94,16 @@ graph LR
     GH --> QR
     PM --> QR
     QR --> NZ --> QN --> AW
-    AW --> QM --> MW --> SC
+    AW --> QM --> MW
+    MW --> QMA --> AW
+    MW --> SC
     AW --> SC
     SC --> PG
     SC --> QE --> EC --> OS
     CD --> PG
     NZ -.invalid.-> DLQ
     AW -.failures.-> DLQ
+    MW -.failures.-> DLQ
     PG --> OB --> EX
     EX --> API --> UI
     EX --> AL
@@ -111,9 +120,9 @@ graph LR
    - upserts the account and item
    - detects language and script
    - publishes to `items.normalized`
-3. **Analysis worker:** resolves VIP mentions. Items with no VIP mention and no leak indicators stop here and are retained only for the short retention window. For the rest, the worker runs text, impersonation, and leak detectors in-process, which keeps latency low. Items with media are forked to `media.analyze`.
-4. **Media worker:** a separate queue and process, because hashing, embeddings, OCR, and video work are CPU/GPU heavy. It also handles `account_profile` jobs (avatar and bio embeddings for impersonation scoring) and publishes `account.embedded` when one finishes. OCR text is fed back into text detection.
-5. **Scorer:** combines detections into a risk score and severity. The incident is written in the same transaction as an **outbox** row. If the incident meets the capture threshold, it enqueues evidence capture.
+3. **Analysis worker:** resolves VIP mentions. Items with no VIP mention, no leak indicators, **and no media** stop here and are retained only for the short retention window. For the rest, the worker runs text, impersonation, and leak detectors in-process, which keeps latency low. **Every item that carries media is forked to `media.analyze`, whether or not it already has a text VIP link**, so a reference-media match and a profile-only impersonation candidate can still be discovered from items that never name the VIP.
+4. **Media worker:** a separate queue and process, because hashing, embeddings, OCR, and video work are CPU/GPU heavy. It also handles `account_profile` jobs (avatar and bio embeddings for impersonation scoring) and publishes `account.embedded` when one finishes. When an item's media jobs finish it publishes `media.analyzed`, which carries the OCR text, any reference-media `item_vips` link, and any `repurposed_media` detection back to the analysis worker for text detection and re-scoring (see Re-scoring).
+5. **Scorer:** combines detections into a risk score and severity. **The scorer is an in-process library, not a service:** the analysis worker and the media worker call it directly, and the incident is written in the same transaction as an **outbox** row in whichever worker owns the change. If the incident meets the capture threshold, it enqueues evidence capture.
 6. **Outbox publisher:** routes each committed outbox row by its `event_type` to the matching exchange: incident events to `events.incidents`, configuration events to `events.config`. This guarantees no event is lost and none is published for a rolled-back change.
 7. **Consumers of `events.incidents`:**
    - The **WebSocket gateway** pushes events to connected dashboards, filtered by each user's VIP scope.
@@ -124,8 +133,9 @@ graph LR
 
 - Quorum queues with publisher confirms. Consumers acknowledge only after the database commit, which together with dedup keys gives effectively-once processing.
 - Every work queue has a DLQ. Messages move to the DLQ after N retries with exponential backoff (via a delayed-retry queue).
-- `items.normalized` uses message priority: manual submissions and items from accounts already linked to open incidents get higher priority.
+- `items.normalized` uses message priority (`x-max-priority: 2`, the only two levels quorum queues use in practice): manual submissions and items from accounts already linked to open incidents get high priority; everything else is normal.
 - Prefetch is tuned per worker type: high for the analysis worker, low (1–2) for the media worker and evidence capture.
+- The scorer runs in-process inside the analysis and media workers, so there is no `scoring` queue; the analysis worker also consumes `media.analyzed` to run text detection on OCR output and to re-score after media analysis.
 
 All queues and exchanges:
 
@@ -134,7 +144,8 @@ All queues and exchanges:
 | `items.raw` | quorum queue | collectors → normalizer | raw collected items |
 | `items.normalized` | quorum queue (priority) | normalizer → analysis worker | normalized items |
 | `media.analyze` | quorum queue | analysis worker → media worker | item media jobs and `account_profile` jobs |
-| `evidence.capture` | quorum queue | scorer → capture service | evidence capture jobs |
+| `media.analyzed` | quorum queue | media worker → analysis worker | media analysis finished: OCR text, reference-media VIP links, and `repurposed_media` detections for text detection and re-scoring |
+| `evidence.capture` | quorum queue | scorer (in-process) → capture service | evidence capture jobs |
 | `events.incidents` | topic exchange | outbox publisher → WebSocket gateway and alerting (one queue each) | incident created/updated/merged |
 | `events.accounts` | topic exchange | media worker → analysis worker via quorum queue `analysis.account_embedded` (routing key `account.embedded`) | profile embeddings ready; triggers final impersonation scoring |
 | `events.config` | fanout exchange | API (via the outbox) → (a) every worker instance, each with its own exclusive auto-delete queue, for cache and mention-automaton invalidation; (b) one durable quorum queue `config.recompute`, consumed competitively by analysis workers so each event is processed by exactly one of them | VIP configuration changed |
@@ -157,7 +168,7 @@ From the scale assumptions in the requirements:
 
 - **Average:** 200,000 items/day ≈ 2.3 items/s. **Sustained design rate:** 10 items/s. **Burst:** 50 items/s for up to 15 minutes.
 - A 15-minute burst delivers 45,000 items. For the queues to drain within 10 minutes after the burst (while 10 items/s keep arriving), the text path needs a processing capacity C that satisfies (50 − C) · 900 ≤ (C − 10) · 600, which gives **C ≥ 34 items/s**. Size analysis workers for 35 items/s.
-- The media path is sized from the measured share of items with media. It must meet the same 10-minute drain target, verified in the load test (task 20.3).
+- The media path now receives **every** media-bearing item, not only VIP-linked ones, so it is sized from the measured share of all items with media and must meet the same 10-minute drain target as the text path, verified in the load test (task 20.3). If the measured media share makes that target infeasible, the fallback is to fork media only for items whose author is a known/possible impersonation candidate or that come from a high-signal source, and that decision is recorded here.
 - Latency targets (Req 14.1, 19.2) apply at the sustained rate. During a burst, latency degrades until the backlog drains.
 
 ## Source Access Matrix
@@ -231,7 +242,7 @@ Schemas are defined as Pydantic models, and a JSON Schema is exported for contra
 
 | Table | Key columns |
 |---|---|
-| `vips` | id, name, sensitivity (low/normal/high), monitoring_active, scoring_profile_id, config_version (incremented on every configuration change), created_at |
+| `vips` | id, name, sensitivity (low/normal/high), monitoring_active, scoring_config_version (FK to `scoring_configs.version`; the config used to score this VIP), config_version (incremented on every configuration change), created_at |
 | `vip_aliases` | vip_id, alias, kind (name/nickname/transliteration/handle/hashtag), is_ambiguous |
 | `vip_context_keywords` | vip_id, keyword (used to disambiguate common names) |
 | `official_accounts` | vip_id, source, platform_account_id, handle, display_name, bio, bio_embedding vector(384), avatar_object_key, avatar_phash, avatar_embedding vector(512), verification_evidence, verified_by, verified_at, profile_refreshed_at |
@@ -243,31 +254,36 @@ Schemas are defined as Pydantic models, and a JSON Schema is exported for contra
 | Table | Key columns |
 |---|---|
 | `accounts` | id, source, platform_account_id (unique per source), handle, display_name, bio, bio_embedding vector(384), avatar_object_key, avatar_phash, avatar_embedding vector(512), created_at_platform, followers, following, verified, self_labels, discovered_via (authored_item/mention/manual_profile/profile_search), first_seen_at, profile_hash (detects profile changes), tsv (tsvector over handle, display_name, bio) |
-| `items` | id, dedup_key (unique), source, platform_item_id, account_id, item_type, url, posted_at, collected_at, text, language, script, ocr_text, tsv (tsvector), engagement jsonb (latest), scored_reach, relations jsonb, raw jsonb, removed_at, schema_version |
+| `items` | id, dedup_key (unique), source, platform_item_id, account_id, item_type, url, posted_at, collected_at, text, language, script, ocr_text, tsv (tsvector), engagement jsonb (latest), scored_reach, relations jsonb, raw jsonb, removed_at, legal_hold (bool, default false), schema_version |
 | `item_engagement_snapshots` | item_id, observed_at, engagement jsonb (one row per observed engagement update) |
 | `account_vip_scores` | account_id, vip_id, state (screened_out/pending_embeddings/scored/partial/stale), prescreen_score, score, components jsonb, profile_hash, vip_config_version, scored_at |
 | `item_versions` | item_id, observed_at, text, change_type (edit/delete) |
 | `item_vips` | item_id, vip_id, match_confidence, match_source (alias/handle/hashtag/media), matched_value |
 | `media` | id, item_id, content_sha256 (dedup), object_key, type, phash, dhash, embedding vector(512), first_seen_at, first_seen_item_id |
+| `connector_cursors` | source (PK), cursor jsonb, updated_at, last_success_at, stale_after_seconds (per-source staleness window; collectors keep no other state) |
+| `source_health` | source (PK), status (healthy/degraded/auth_failed/stale), last_item_at, last_error, consecutive_failures, checked_at (backs `/sources/health` and the operational alerts in Req 2.7, 11.5, 19.5) |
 
 ### Detection and incidents
 
 | Table | Key columns |
 |---|---|
-| `detections` | id, scope (item/account), item_id (nullable), account_id (nullable), vip_id (nullable), detector, model_version, score, label, spans jsonb, details jsonb, created_at |
-| `incidents` | id, subject_type (item/account), item_id (nullable), account_id (nullable), subject_vip_id (account incidents only), source, language, risk_score, severity, severity_manual (bool), threat_types text[], explanation, status, assignee_id, campaign_id, scoring_config_version, outcome, source_removed, merged_into_id (nullable FK to incidents; set when an item incident is merged into an account incident), below_threshold (bool, default false; account incidents only), created_at, updated_at |
+| `detections` | id, scope (item/account), item_id (nullable), account_id (nullable), vip_id (nullable), detector, model_version, input_variant (text/ocr_text/media), score, label, spans jsonb, details jsonb, created_at; unique on (item_id, detector, model_version, input_variant) |
+| `incidents` | id, subject_type (item/account), item_id (nullable), account_id (nullable), subject_vip_id (account incidents only), source, language, risk_score, severity, severity_manual (bool), threat_types text[] (see the taxonomy below), explanation, status, assignee_id, campaign_id, scoring_config_version, outcome, source_removed, legal_hold (bool, default false), merged_into_id (nullable FK to incidents; set when an item incident is merged into an account incident), below_threshold (bool, default false; account incidents only), created_at, updated_at |
 | `incident_vips` | incident_id, vip_id |
 | `incident_items` | incident_id, item_id, attached_at, item_risk (the item's risk for this incident's VIP at attachment, used by account scoring) |
 | `incident_events` | incident_id, at, actor_id (null for system), event_type (status_change/assign/note/severity_override/rescore/item_attached/merged_into/campaign_linked), from_value, to_value, reason |
 | `incident_notes` | incident_id, author_id, body, created_at |
 | `scoring_configs` | version, weights jsonb, bands jsonb, overrides jsonb, created_by, created_at |
+| `llm_budget_usage` | day (date, unique), tokens_used, updated_at (shared daily token-budget counter, see Text Threat Detection) |
+
+**Incident `threat_types` taxonomy:** the array stores the union of (a) the winning intent label when it is neither `none` nor `criticism`, using the six canonical labels from Req 5.1 verbatim, and (b) each detector-derived type: `impersonation`, `solicitation`, `leak`, `repurposed_media`, and `campaign`. The dashboard threat-type filter (Req 12.1) and the alert grouping key (see Alerting) use exactly these values; the eval report reports per intent label.
 
 ### Campaigns and graph
 
 | Table | Key columns |
 |---|---|
 | `campaigns` | id, vip_id, status (open/closed), first_seen_at, last_seen_at, account_count, item_count, coordination_score, summary |
-| `campaign_members` | campaign_id, account_id, item_id |
+| `campaign_members` | id, campaign_id, member_type (account/item), account_id (nullable), item_id (nullable); a check constraint requires exactly one of account_id/item_id to match `member_type`, so account-only members (e.g., a centrality amplifier with no clustered item) are storable |
 | `account_edges` | src_account_id, dst_account_id, edge_type (reply/repost/mention/co_cluster), weight, first_seen_at, last_seen_at |
 
 ### Evidence, alerts, feedback, access
@@ -320,13 +336,19 @@ Detections with a null `vip_id` never create an incident on their own. They are 
   - `vip_context_keywords`: (vip_id, keyword)
   - `item_vips`: (item_id, vip_id)
   - `incident_vips`: (incident_id, vip_id)
-  - `campaign_members`: (campaign_id, item_id), with a secondary index on (campaign_id, account_id)
+  - `campaign_members`: UUID `id`, with unique indexes on (campaign_id, item_id) and (campaign_id, account_id) plus the `member_type` check constraint
   - `account_edges`: (src_account_id, dst_account_id, edge_type)
   - `user_vip_scopes`: (user_id, vip_id)
   - `incident_items`: (incident_id, item_id)
   - `item_engagement_snapshots`: (item_id, observed_at)
   - `evidence_manifests`: (incident_id, version)
   - `account_vip_scores`: (account_id, vip_id)
+  - `labels`: UUID `id` (an incident can carry several labels over time)
+  - `incident_events`: UUID `id`
+  - `saved_searches`: UUID `id`
+  - `alert_rules`: UUID `id`
+  - `suppression_rules`: UUID `id`
+  - `llm_budget_usage`: (day)
 - `official_accounts` is unique on (source, platform_account_id); `accounts` likewise.
 - `incidents` has two partial unique indexes: `(item_id) WHERE subject_type = 'item'` and `(account_id, subject_vip_id) WHERE subject_type = 'account' AND status NOT IN ('resolved', 'false_positive')`.
 
@@ -373,7 +395,7 @@ Detections with a null `vip_id` never create an incident on their own. They are 
    
    Items scoring below `stage1_threshold` on both signals stop here.
 2. **Stage 2 (threat-intent classifier):**
-   - **MVP:** every VIP-linked item that passes Stage 1 is classified by an LLM with a strict JSON schema: `{intent: none|criticism|harassment|violent_threat|incitement|doxxing, intent_probs: {<each of the six labels>: 0–1, summing to 1}, solicitation: none|money|credentials|personal_info, target_vip, specificity: {location, time, method}, rationale, spans}`. This runs under a daily token budget. When the budget is exhausted, the system falls back to Stage 1 scores and flags `degraded_classification`. There is no uncertainty-band gating at MVP, because there is no trained classifier yet to produce the band.
+   - **MVP:** every VIP-linked item that passes Stage 1 is classified by an LLM with a strict JSON schema: `{intent: none|criticism|harassment|violent_threat|incitement|doxxing, intent_probs: {<each of the six labels>: 0–1, summing to 1}, solicitation: none|money|credentials|personal_info, target_vip, specificity: {location, time, method}, rationale, spans}`. This runs under a daily token budget. The budget is enforced through the shared `llm_budget_usage` table (one row per UTC day, incremented transactionally) so every analysis worker instance sees the same total; when the day's `tokens_used` would exceed the configured budget, the worker falls back to Stage 1 scores and marks the detection `degraded` in `detections.details`. The budget value itself is an open question (see Open Questions). There is no uncertainty-band gating at MVP, because there is no trained classifier yet to produce the band.
    - **Post-MVP:** a fine-tuned MuRIL or XLM-R classifier trained on analyst labels plus LLM-labelled data. After that, the LLM is used only for items in the classifier's uncertainty band (Req 5.4).
 3. **Explanation:** spans and rationale are stored on the detection and rendered in the incident view.
 
@@ -501,7 +523,8 @@ The scorer's override makes the account incident critical as soon as any attache
 
 ### Media Analysis (Req 7)
 
-- **Download:** size and type limits, MIME sniffing, ClamAV scan, and SHA-256 content dedup. Media are stored in MinIO.
+- **Download:** size and type limits, MIME sniffing, a ClamAV scan, and SHA-256 content dedup. ClamAV runs as its own Compose service (`clamav`) reached over TCP; the media worker never executes downloaded content. Media are stored in MinIO.
+- **Model weights:** OpenCLIP, PaddleOCR, the multilingual toxicity model, and the sentence-embedding model all download weights on first use. Weights are either baked into the `media` and `analysis` images at build time or mounted from a named `models` volume that is pre-populated by `make fetch-models`, so a cold start never depends on an external download and offline hosts still work.
 - **Fingerprinting:** pHash and dHash (`imagehash`), plus an OpenCLIP ViT-B/32 embedding stored in pgvector.
 - **Matching:**
   - pHash Hamming distance ≤ 8 (of 64 bits) gives a near-duplicate.
@@ -553,6 +576,8 @@ Runs every 5 minutes per VIP over the last W minutes (default 60).
    - Compute a robust z = (x − median) / (1.4826 · MAD).
    - Flag when z ≥ 4 and x ≥ a minimum count.
    
+   **Cold start:** a VIP has no 4-week baseline at launch, so until it accumulates 4 weeks of history the detector uses a global cross-VIP median/MAD over the same hour-of-week and raises a lower-confidence candidate; the per-VIP baseline takes over once enough history exists. This prevents both a month of silence and a flood of false spikes from an empty baseline.
+
    A spike raises a campaign candidate review even without a content cluster.
 5. **Graph:**
    - Record reply, repost, mention, and co-cluster edges in `account_edges`.
@@ -616,12 +641,14 @@ account_risk = 1 − (1 − imp_risk) · (1 − max_i item_risk_i)
   - A change to `scoring_config` recomputes everything.
 - **Worked check:** w_imp = 0.85, s_imp = 0.80, 1k followers (mult 1.04), normal VIP, so imp_risk ≈ 0.71 (medium). Attaching a capped criticism item (clamped to ≤ 0.54) gives at most 1 − 0.29 · 0.46 ≈ 0.87 (high). Attaching ten more such items changes nothing. Attaching one item with a UPI ID makes the incident critical.
 
+Bands are half-open: a score equal to an upper bound belongs to the next band up, so `0.55` is Medium and `0.54` (the criticism clamp) is Low.
+
 | Band | Risk |
 |---|---|
 | No incident (detections stored only) | < 0.30 |
-| Low | 0.30 – 0.55 |
-| Medium | 0.55 – 0.75 |
-| High | 0.75 – 0.90 |
+| Low | [0.30, 0.55) |
+| Medium | [0.55, 0.75) |
+| High | [0.75, 0.90) |
 | Critical | ≥ 0.90 |
 
 ### Detector reliability weights (scoring config v1)
@@ -651,7 +678,7 @@ These are starting values, to be replaced by evaluation-set precision once task 
 
 **Caps:**
 
-- **Criticism cap (Req 5.6):** if no threat-class signal is present on the item (see Text Threat Detection), the score itself is clamped: `risk_v = min(risk_v, 0.54)`, just below the low/medium boundary. Severity is therefore low, and anything that consumes the score (account-incident aggregation, re-scoring) sees the clamped value, not the raw one. This applies even when `text_toxicity` or abuse-category lexicon hits push the computed risk higher. It also holds in `degraded_classification` mode, where only threat-category lexicon hits can lift the cap.
+- **Criticism cap (Req 5.6):** if no threat-class signal is present on the item (see Text Threat Detection), the score itself is clamped: `risk_v = min(risk_v, 0.54)`, just below the low/medium boundary. Severity is therefore low, and anything that consumes the score (account-incident aggregation, re-scoring) sees the clamped value, not the raw one. This applies even when `text_toxicity` or abuse-category lexicon hits push the computed risk higher. It also holds in `degraded` mode, where only threat-category lexicon hits can lift the cap.
 - An active suppression rule prevents incident creation; the suppression is recorded on the detection.
 
 **Worked check:** a criticism item the LLM is 90% sure about has `threat_prob` ≈ 0.05, contributing 0.04. With toxicity 0.9 (0.55 × 0.9 = 0.50), noisy-OR gives about 0.52, already below the 0.54 clamp, so it stays low. Had it been 0.70, the clamp would set it to 0.54.
@@ -664,8 +691,10 @@ The weights, bands, and overrides form a versioned `scoring_config`. All initial
 
 - **Triggers:**
   - an item joins a confirmed campaign (adds a `campaign_member` detection)
+  - media analysis for an item completes (`media.analyzed`): OCR text may add text detections, a reference-media match may add an `item_vips` VIP link, and a reusable image may add a `repurposed_media` detection. All three change the item's score, so the analysis worker re-scores on this event even when the item already has an incident or had none.
   - an engagement update raises an item's reach by an order of magnitude. Reach is `followers + engagement_total`, the same quantity the reach multiplier uses. Each item stores `scored_reach`, the reach used at its last scoring. When the normalizer applies an engagement update, it appends a row to `item_engagement_snapshots` and triggers a re-score if `current_reach ≥ 10 × max(scored_reach, 10)` (the floor of 10 stops trivial jumps such as 0 → 1 from triggering).
   - new items attached to an account incident (see Impersonation Detection)
+- **Detections are idempotent.** A detector writes at most one row per `(item_id, detector, model_version, input_variant)`, where `input_variant` is `text`, `ocr_text`, or `media`. Re-running a detector (for example, text detection after OCR text arrives) upserts that row rather than inserting a second one, so the scorer's noisy-OR never counts the same detector twice for one item. `input_variant` is a column on `detections` and part of its unique index.
 - **Behavior:**
   - Re-scoring uses the current `scoring_config` version.
   - If an item without an incident now scores ≥ 0.30, an incident is created.
@@ -705,7 +734,7 @@ The weights, bands, and overrides form a versioned `scoring_config`. All initial
   ```
 
   The manifest's own SHA-256 is stored in Postgres. RFC 3161 trusted timestamping of the manifest hash is post-MVP.
-- **Storage:** a MinIO bucket with versioning and object lock in compliance mode for the retention period. Keys follow `evidence/{incident_id}/{kind}/{sha256}`.
+- **Storage:** a MinIO bucket with versioning and object lock in **governance mode** for the retention period. Compliance mode is deliberately not used: it cannot be bypassed even by root, which would make the VIP-offboarding and retention-expiry deletions in Req 18.2/18.4 impossible. Instead, deletion before expiry requires a dedicated retention role with separate credentials; every bypass is written to `audit_log`. Keys follow `evidence/{incident_id}/{kind}/{sha256}`.
 - **Custody:** every view, download, or export writes to `custody_log`. Exports are a ZIP containing a PDF summary, the artifacts, the manifest, and a `VERIFY.md` with hash-check instructions.
 - **Source-removed check:** high-or-above incidents are re-fetched at 1 hour, 24 hours, and 7 days. A 404 or "content unavailable" response sets `source_removed` and `items.removed_at`.
 - **Retries:** exponential backoff with jitter, up to 5 attempts. Final failures are recorded on the incident and shown in the UI.
@@ -722,15 +751,19 @@ The weights, bands, and overrides form a versioned `scoring_config`. All initial
 - **Audit:** middleware writes mutating requests to `audit_log`.
 - **Rate limiting:** a per-user token bucket held in process. The MVP runs a single API instance, so no shared store is needed. When the API is scaled to more than one instance, the limiter moves to Redis.
 - **Endpoints (grouped):**
+  - `/auth` (login, refresh, logout, MFA enrol and verify)
+  - `/users` (Admin-only user CRUD, VIP-scope assignment, and `can_reveal_sensitive` grant/revoke; every change audited)
   - `/vips`
   - `/incidents` (list/filter/search, detail, status, assign, notes, bulk)
+  - `/incidents/{id}/report-package` (generate/download the impersonation report package)
+  - `/accounts` (account detail, suspect-vs-official profile comparison)
   - `/campaigns` (detail, graph)
   - `/evidence` (download, export)
-  - `/alerts/rules`
+  - `/alerts` (list, acknowledge for the Slack callback) and `/alerts/rules`
   - `/labels`
   - `/suppressions`
   - `/sources/health`
-  - `/metrics/workflow`
+  - `/metrics/workflow` and `/metrics/detectors` (per-detector false-positive rate, Req 16.4)
   - `/submissions` (manual URL)
 - **WebSocket gateway:** consumes `events.incidents` and pushes `{type, incident_id, severity, vip_ids, summary}` to each connection whose VIP scope intersects `vip_ids`; `type` is `created`, `updated`, or `merged` (merged events also carry `merged_into_id`; see Impersonation Detection). The client then fetches details over REST, so permission checks stay in one place.
 
@@ -810,7 +843,7 @@ Status transitions:
 | Poison messages | bounded retries, then DLQ; DLQ depth alert; replay tooling to re-drive after fixes |
 | Duplicate delivery | dedup key on items; partial unique index `incidents (item_id) WHERE subject_type = 'item'`; one open account incident per (account, VIP) via the second partial unique index; idempotent handlers |
 | Lost events | transactional outbox |
-| Model/LLM failure | fall back to Stage 1 scores, tag the detection `degraded`, raise an operational alert |
+| Model/LLM failure | fall back to Stage 1 scores, set `detections.details.degraded = true`, raise an operational alert |
 | Storage | connection pooling (asyncpg/psycopg pool); disk-usage alerts; retention jobs |
 
 ## Security
@@ -824,8 +857,11 @@ Status transitions:
 ## Data Protection and Retention (Req 18)
 
 - Items not linked to a VIP or incident are deleted after 30 days. Incidents and evidence are kept for 1 year unless under legal hold. Both periods are configurable.
-- Object lock retention matches the configured evidence retention. Legal hold uses MinIO's legal-hold flag.
+- Object lock retention matches the configured evidence retention, in governance mode. Legal hold uses MinIO's legal-hold flag and is mirrored by `incidents.legal_hold` / `items.legal_hold` so retention jobs can skip held rows. Deleting evidence before its retention expires is possible only through the audited retention role (see Evidence Capture and Integrity).
 - VIP offboarding deletes the VIP's reference data, fingerprints, and unheld incidents.
+- **Item-deletion cascade:** deleting an unlinked item also deletes its `detections`, `item_vips`, `item_engagement_snapshots`, `item_versions`, `labels`, and `campaign_members` rows. A `media` row is kept while any other item still references it (`first_seen_item_id` is nulled when that item goes); it is deleted with the last referencing item. `incident_items` rows only exist for incident-linked items, which are never deleted by the 30-day job.
+- **Account retention:** `accounts` and `account_vip_scores` are kept while the account has a VIP link or is the subject of an open incident, because impersonation scoring and suppression rules depend on them. Accounts with no VIP link, no incident, and no profile refresh for 1 year are deleted, and any account-only `campaign_members` rows go with them.
+- **Backups (Req 19.6):** Postgres automated backups and MinIO replication run from day one, the restore runbook lives in `docs/`, and a timed restore into a fresh environment is performed before the MVP release (task 20.4).
 - `docs/data-protection.md` records:
   - the processing purpose
   - the lawful basis under the DPDP Act, 2023
@@ -855,7 +891,7 @@ Status transitions:
 
 | Concern | MVP choice | Upgrade path (trigger) |
 |---|---|---|
-| Language / layout | Python 3.12 modular monolith, multiple entrypoints; pinned via `requires-python = ">=3.12,<3.13"` and a `python:3.12-slim` base image | split services if teams or scaling diverge |
+| Language / layout | Python 3.12 modular monolith, multiple entrypoints; one Dockerfile with four role targets (`api`, `analysis`, `media`, `capture`) built from `python:3.12-slim`; pinned via `requires-python = ">=3.12,<3.13"` | split services if teams or scaling diverge |
 | Queue | RabbitMQ (quorum queues, DLQ, priority) | — |
 | Rate limiting | in-process token bucket (single API instance) | Redis (when the API runs more than one instance) |
 | System of record | PostgreSQL 16 + pgvector + pg_trgm | read replicas at load |
@@ -882,9 +918,9 @@ aegis/
   alerting/
   api/
   eval/          # datasets, runners, CI gate; CLI: python -m aegis.eval {run,gate}
-migrations/      # Alembic
+migrations/      # Alembic; root alembic.ini targets these; the first migration runs CREATE EXTENSION vector, pg_trgm
 frontend/
-deploy/          # docker-compose, grafana dashboards, prometheus rules
+deploy/          # Grafana dashboards, Prometheus rules (docker-compose.yml lives at the repo root)
 data/golden/     # labelled evaluation set (input to aegis.eval)
 reports/eval/    # eval reports; baseline.json is committed and used by the CI gate
 docs/            # data-protection.md, runbooks, annotation guidelines
@@ -929,7 +965,7 @@ docs/            # data-protection.md, runbooks, annotation guidelines
 | 16 Feedback and Quality | Feedback and Detection Quality; Testing and Evaluation Strategy |
 | 17 Access Control and Audit | API and Real-Time Delivery (auth); Security |
 | 18 Data Protection | Data Protection and Retention; Security |
-| 19 Performance and Observability | Capacity Targets; Error Handling; Observability |
+| 19 Performance and Observability | Capacity Targets; Error Handling; Observability; Data Protection and Retention (backups) |
 
 ## Open Questions
 
@@ -939,3 +975,10 @@ docs/            # data-protection.md, runbooks, annotation guidelines
 4. Telegram monitoring account ownership and the list of channels to monitor.
 5. Hosting location and data-residency requirements.
 6. Who signs off on threshold and scoring changes, and the acceptable false-positive rate per severity.
+7. Golden-set labelling: who labels, how many analyst-hours per week are available, and does the plan commit to 300+ items per threat class per language (up to ~5,400)?
+8. The LLM daily token budget value and the expected monthly cost at the sustained 10 items/s, given every VIP-linked item that passes Stage 1 reaches the LLM.
+9. Reverse image search provider choice (TinEye vs Google Cloud Vision), quota, and budget.
+10. ClamAV deployment model (sidecar container vs managed) and the signature-update policy on hosts without internet egress.
+11. Legal sign-off on pre-retention-expiry evidence deletion through the audited governance-mode bypass, to satisfy DPDP Act erasure and VIP offboarding (Req 18.2/18.4).
+12. Backup RPO/RTO and the owner responsible for testing Postgres and MinIO restores before launch.
+13. Whether the capture browser may authenticate to each platform with a dedicated monitoring account, and which source terms permit it.

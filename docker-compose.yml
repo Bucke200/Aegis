@@ -1,59 +1,167 @@
+name: aegis
+
+x-app-environment: &app-environment
+  AEGIS_ENVIRONMENT: ${AEGIS_ENVIRONMENT:-development}
+  AEGIS_LOG_LEVEL: ${AEGIS_LOG_LEVEL:-INFO}
+  AEGIS_DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-aegis}:${POSTGRES_PASSWORD:-aegis123}@postgres:5432/${POSTGRES_DB:-aegis}
+  AEGIS_RABBITMQ_URL: amqp://${RABBITMQ_USER:-aegis}:${RABBITMQ_PASSWORD:-aegis123}@rabbitmq:5672/
+  AEGIS_MINIO_ENDPOINT: minio:9000
+  AEGIS_MINIO_ACCESS_KEY: ${MINIO_ROOT_USER:-aegis}
+  AEGIS_MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-aegis123}
+  AEGIS_MINIO_SECURE: "false"
+  AEGIS_CLAMAV_HOST: clamav
+  AEGIS_CLAMAV_PORT: "3310"
+
+x-app-base: &app-base
+  env_file:
+    - path: .env
+      required: false
+  environment:
+    <<: *app-environment
+  restart: unless-stopped
+
 services:
   postgres:
-    image: postgres:15
+    image: pgvector/pgvector:pg16
     container_name: aegis_postgres
     environment:
-      POSTGRES_DB: aegis
-      POSTGRES_USER: aegis
-      POSTGRES_PASSWORD: aegis123
+      POSTGRES_DB: ${POSTGRES_DB:-aegis}
+      POSTGRES_USER: ${POSTGRES_USER:-aegis}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-aegis123}
     ports:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-aegis} -d ${POSTGRES_DB:-aegis}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
     restart: unless-stopped
 
   rabbitmq:
-    image: rabbitmq:3-management
+    image: rabbitmq:4-management
     container_name: aegis_rabbitmq
     environment:
-      RABBITMQ_DEFAULT_USER: aegis
-      RABBITMQ_DEFAULT_PASS: aegis123
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-aegis}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-aegis123}
     ports:
-      - "5672:5672"    # AMQP port
-      - "15672:15672"  # Management UI
+      - "5672:5672"
+      - "15672:15672"
     volumes:
       - rabbitmq_data:/var/lib/rabbitmq
-    restart: unless-stopped
-
-  redis:
-    image: redis:7-alpine
-    container_name: aegis_redis
-    ports:
-      - "6379:6379"
-    volumes:
-      - redis_data:/data
-    restart: unless-stopped
-
-  elasticsearch:
-    image: docker.elastic.co/elasticsearch/elasticsearch:8.11.0
-    container_name: aegis_elasticsearch
-    environment:
-      - discovery.type=single-node
-      - xpack.security.enabled=false
-      - ES_JAVA_OPTS=-Xms512m -Xmx512m
-    ports:
-      - "9200:9200"
-    volumes:
-      - elasticsearch_data:/usr/share/elasticsearch/data
     healthcheck:
-      test: ["CMD-SHELL", "curl -fsS http://localhost:9200/_cluster/health || exit 1"]
-      interval: 15s
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
       timeout: 10s
       retries: 10
     restart: unless-stopped
 
+  minio:
+    image: minio/minio:latest
+    container_name: aegis_minio
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-aegis}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-aegis123}
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  minio-init:
+    image: minio/mc:latest
+    container_name: aegis_minio_init
+    depends_on:
+      minio:
+        condition: service_healthy
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-aegis}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-aegis123}
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        mc alias set local http://minio:9000 "$$MINIO_ROOT_USER" "$$MINIO_ROOT_PASSWORD" &&
+        mc mb --ignore-existing --with-lock local/aegis-evidence &&
+        mc mb --ignore-existing local/aegis-media &&
+        mc version enable local/aegis-evidence &&
+        mc version enable local/aegis-media
+    restart: "no"
+
+  api:
+    <<: *app-base
+    build:
+      context: .
+      target: api
+    image: aegis-api
+    container_name: aegis_api
+    command: ["aegis-api"]
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+
+  worker:
+    <<: *app-base
+    build:
+      context: .
+      target: analysis
+    image: aegis-analysis
+    container_name: aegis_worker
+    command: ["aegis-worker"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+
+  clamav:
+    image: clamav/clamav:stable
+    container_name: aegis_clamav
+    profiles: ["media"]
+    ports:
+      - "3310:3310"
+    healthcheck:
+      test: ["CMD", "clamdcheck.sh"]
+      interval: 30s
+      timeout: 10s
+      start_period: 120s
+      retries: 5
+    restart: unless-stopped
+
+  capture:
+    <<: *app-base
+    build:
+      context: .
+      target: capture
+    image: aegis-capture
+    container_name: aegis_capture
+    command: ["aegis-capture"]
+    profiles: ["capture"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+
 volumes:
   postgres_data:
   rabbitmq_data:
-  redis_data:
-  elasticsearch_data:
+  minio_data:

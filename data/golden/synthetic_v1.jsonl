@@ -1,0 +1,27 @@
+{"id": "en-001", "language": "en", "text": "I will kill you if you show up", "labels": {"keyword_smoke": true}, "intent": "violent_threat", "source": "synthetic"}
+{"id": "en-002", "language": "en", "text": "We should bomb his office", "labels": {"keyword_smoke": true}, "intent": "violent_threat", "source": "synthetic"}
+{"id": "en-003", "language": "en", "text": "This is a threat to democracy, not to any person", "labels": {"keyword_smoke": false}, "intent": "criticism", "source": "synthetic"}
+{"id": "en-004", "language": "en", "text": "I disagree with everything he stands for", "labels": {"keyword_smoke": false}, "intent": "criticism", "source": "synthetic"}
+{"id": "en-005", "language": "en", "text": "Great speech today, well said", "labels": {"keyword_smoke": false}, "intent": "none", "source": "synthetic"}
+{"id": "en-006", "language": "en", "text": "Someone should murder that traitor", "labels": {"keyword_smoke": true}, "intent": "violent_threat", "source": "synthetic"}
+{"id": "en-007", "language": "en", "text": "Random thoughts about the weather", "labels": {"keyword_smoke": false}, "intent": "none", "source": "synthetic"}
+{"id": "en-008", "language": "en", "text": "The bomb cyclone was brutal across the state", "labels": {"keyword_smoke": false}, "intent": "none", "source": "synthetic", "notes": "news, not a threat"}
+{"id": "en-009", "language": "en", "text": "I will end him, mark my words", "labels": {"keyword_smoke": true}, "intent": "violent_threat", "source": "synthetic", "notes": "keyword missed"}
+{"id": "hi-001", "language": "hi", "text": "मैं तुम्हें मार डालूंगा", "labels": {"keyword_smoke": true}, "intent": "violent_threat", "source": "synthetic"}
+{"id": "hi-002", "language": "hi", "text": "उसके घर पर बम रखा है", "labels": {"keyword_smoke": true}, "intent": "violent_threat", "source": "synthetic"}
+{"id": "hi-003", "language": "hi", "text": "मुझे उसकी नीतियों से सहमति नहीं है", "labels": {"keyword_smoke": false}, "intent": "criticism", "source": "synthetic"}
+{"id": "hi-004", "language": "hi", "text": "आज का भाषण बहुत अच्छा था", "labels": {"keyword_smoke": false}, "intent": "none", "source": "synthetic"}
+{"id": "hi-005", "language": "hi", "text": "उसे गोली मार दो", "labels": {"keyword_smoke": true}, "intent": "violent_threat", "source": "synthetic"}
+{"id": "hi-006", "language": "hi", "text": "यह लोकतंत्र के लिए खतरा है", "labels": {"keyword_smoke": false}, "intent": "criticism", "source": "synthetic"}
+{"id": "hi-007", "language": "hi", "text": "आज मौसम बहुत अच्छा है", "labels": {"keyword_smoke": false}, "intent": "none", "source": "synthetic"}
+{"id": "hi-008", "language": "hi", "text": "बम फूटने की खबर आई है, कोई घायल नहीं", "labels": {"keyword_smoke": false}, "intent": "none", "source": "synthetic", "notes": "news, not a threat"}
+{"id": "hi-009", "language": "hi", "text": "उसका अंत कर दो", "labels": {"keyword_smoke": true}, "intent": "violent_threat", "source": "synthetic", "notes": "keyword missed"}
+{"id": "hil-001", "language": "hi-Latn", "text": "main usko maar dunga", "labels": {"keyword_smoke": true}, "intent": "violent_threat", "source": "synthetic"}
+{"id": "hil-002", "language": "hi-Latn", "text": "uske ghar par bomb rakhna chahiye", "labels": {"keyword_smoke": true}, "intent": "violent_threat", "source": "synthetic"}
+{"id": "hil-003", "language": "hi-Latn", "text": "uski policies se main agree nahi karta", "labels": {"keyword_smoke": false}, "intent": "criticism", "source": "synthetic"}
+{"id": "hil-004", "language": "hi-Latn", "text": "aaj ka speech bahut accha tha", "labels": {"keyword_smoke": false}, "intent": "none", "source": "synthetic"}
+{"id": "hil-005", "language": "hi-Latn", "text": "goli maaro usko", "labels": {"keyword_smoke": true}, "intent": "violent_threat", "source": "synthetic"}
+{"id": "hil-006", "language": "hi-Latn", "text": "yeh democracy ke liye khatra hai", "labels": {"keyword_smoke": false}, "intent": "criticism", "source": "synthetic"}
+{"id": "hil-007", "language": "hi-Latn", "text": "aaj mausam bahut accha hai", "labels": {"keyword_smoke": false}, "intent": "none", "source": "synthetic"}
+{"id": "hil-008", "language": "hi-Latn", "text": "bomb cyclone aaya tha, sab safe hain", "labels": {"keyword_smoke": false}, "intent": "none", "source": "synthetic", "notes": "news, not a threat"}
+{"id": "hil-009", "language": "hi-Latn", "text": "uska end kar denge", "labels": {"keyword_smoke": true}, "intent": "violent_threat", "source": "synthetic", "notes": "keyword missed"}

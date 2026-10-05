@@ -1,0 +1,49 @@
+{
+  "generated_at": "2026-10-05T17:12:57.090836+00:00",
+  "golden_path": "data\\golden",
+  "item_count": 27,
+  "detectors": {
+    "keyword_smoke": {
+      "all": {
+        "tp": 9,
+        "fp": 3,
+        "fn": 3,
+        "tn": 12,
+        "support": 12,
+        "precision": 0.75,
+        "recall": 0.75,
+        "f1": 0.75
+      },
+      "en": {
+        "tp": 3,
+        "fp": 1,
+        "fn": 1,
+        "tn": 4,
+        "support": 4,
+        "precision": 0.75,
+        "recall": 0.75,
+        "f1": 0.75
+      },
+      "hi": {
+        "tp": 3,
+        "fp": 1,
+        "fn": 1,
+        "tn": 4,
+        "support": 4,
+        "precision": 0.75,
+        "recall": 0.75,
+        "f1": 0.75
+      },
+      "hi-Latn": {
+        "tp": 3,
+        "fp": 1,
+        "fn": 1,
+        "tn": 4,
+        "support": 4,
+        "precision": 0.75,
+        "recall": 0.75,
+        "f1": 0.75
+      }
+    }
+  }
+}
