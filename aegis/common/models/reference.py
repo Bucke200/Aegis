@@ -5,6 +5,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
+from pgvector.sqlalchemy import Vector
 from sqlalchemy import (
     Boolean,
     DateTime,
@@ -16,7 +17,6 @@ from sqlalchemy import (
     func,
 )
 from sqlalchemy.orm import Mapped, mapped_column
-from pgvector.sqlalchemy import Vector
 
 from aegis.common.db import Base
 from aegis.common.models.base import (
@@ -41,31 +41,23 @@ class VIP(Base, UUIDPrimaryKeyMixin, CreatedAtMixin):
         enum_column(Sensitivity, name="sensitivity"), nullable=False, default=Sensitivity.NORMAL
     )
     monitoring_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
-    scoring_config_version: Mapped[int | None] = mapped_column(
-        ForeignKey("scoring_configs.version"), nullable=True
-    )
+    scoring_config_version: Mapped[int | None] = mapped_column(ForeignKey("scoring_configs.version"), nullable=True)
     config_version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
 
 
 class VipAlias(Base):
     __tablename__ = "vip_aliases"
 
-    vip_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("vips.id", ondelete="CASCADE"), primary_key=True
-    )
+    vip_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("vips.id", ondelete="CASCADE"), primary_key=True)
     alias: Mapped[str] = mapped_column(Text, primary_key=True)
-    kind: Mapped[AliasKind] = mapped_column(
-        enum_column(AliasKind, name="alias_kind"), primary_key=True
-    )
+    kind: Mapped[AliasKind] = mapped_column(enum_column(AliasKind, name="alias_kind"), primary_key=True)
     is_ambiguous: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 
 
 class VipContextKeyword(Base):
     __tablename__ = "vip_context_keywords"
 
-    vip_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("vips.id", ondelete="CASCADE"), primary_key=True
-    )
+    vip_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("vips.id", ondelete="CASCADE"), primary_key=True)
     keyword: Mapped[str] = mapped_column(Text, primary_key=True)
 
 
@@ -81,9 +73,7 @@ class OfficialAccount(Base, UUIDPrimaryKeyMixin):
         ),
     )
 
-    vip_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("vips.id", ondelete="CASCADE"), nullable=False
-    )
+    vip_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("vips.id", ondelete="CASCADE"), nullable=False)
     source: Mapped[Source] = mapped_column(enum_column(Source, name="official_source"), nullable=False)
     platform_account_id: Mapped[str] = mapped_column(Text, nullable=False)
     handle: Mapped[str | None] = mapped_column(Text)
@@ -94,14 +84,10 @@ class OfficialAccount(Base, UUIDPrimaryKeyMixin):
     avatar_phash: Mapped[str | None] = mapped_column(Text)
     avatar_embedding: Mapped[list[float] | None] = mapped_column(Vector(512), nullable=True)
     verification_evidence: Mapped[str | None] = mapped_column(Text)
-    verified_by: Mapped[uuid.UUID | None] = mapped_column(
-        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
-    )
+    verified_by: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     profile_refreshed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), nullable=False
-    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
 
 class ReferenceMedia(Base, UUIDPrimaryKeyMixin):
@@ -115,9 +101,7 @@ class ReferenceMedia(Base, UUIDPrimaryKeyMixin):
         ),
     )
 
-    vip_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("vips.id", ondelete="CASCADE"), nullable=False
-    )
+    vip_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("vips.id", ondelete="CASCADE"), nullable=False)
     object_key: Mapped[str] = mapped_column(Text, nullable=False)
     kind: Mapped[ReferenceMediaKind] = mapped_column(
         enum_column(ReferenceMediaKind, name="reference_media_kind"), nullable=False
@@ -125,22 +109,14 @@ class ReferenceMedia(Base, UUIDPrimaryKeyMixin):
     phash: Mapped[str | None] = mapped_column(Text)
     dhash: Mapped[str | None] = mapped_column(Text)
     embedding: Mapped[list[float] | None] = mapped_column(Vector(512), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), nullable=False
-    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
 
 class SensitiveFingerprint(Base, UUIDPrimaryKeyMixin):
     __tablename__ = "sensitive_fingerprints"
 
-    vip_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("vips.id", ondelete="CASCADE"), nullable=False
-    )
-    kind: Mapped[FingerprintKind] = mapped_column(
-        enum_column(FingerprintKind, name="fingerprint_kind"), nullable=False
-    )
+    vip_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("vips.id", ondelete="CASCADE"), nullable=False)
+    kind: Mapped[FingerprintKind] = mapped_column(enum_column(FingerprintKind, name="fingerprint_kind"), nullable=False)
     salted_hash: Mapped[str] = mapped_column(Text, nullable=False)
     salt_id: Mapped[str] = mapped_column(Text, nullable=False)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), nullable=False
-    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)

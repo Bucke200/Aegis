@@ -1,0 +1,54 @@
+{
+  "schema_version": "1.0",
+  "source": "manual",
+  "platform_item_id": "manual-item-002",
+  "dedup_key": "11a6480cac94fca9a7d2659710505dcfc32cc8290ec8acafd47b2135dbea3b34",
+  "item_type": "post",
+  "url": "https://example.test/manual/manual-item-002",
+  "posted_at": "2026-09-30T12:00:00Z",
+  "collected_at": "2026-10-01T03:04:05Z",
+  "author": {
+    "platform_account_id": "acct-manual-2",
+    "handle": "@sample_manual",
+    "display_name": "Sample Manual",
+    "bio": "Sample biography",
+    "avatar_url": "https://example.test/avatar.png",
+    "created_at": "2024-01-15T00:00:00Z",
+    "followers": 1234,
+    "following": 56,
+    "verified": false,
+    "self_labels": []
+  },
+  "content": {
+    "text": "Sample manual content for contract tests",
+    "language": null,
+    "script": null
+  },
+  "media": [],
+  "relations": {
+    "reply_to": null,
+    "repost_of": null,
+    "quote_of": null,
+    "mentions": [
+      "@sample_handle"
+    ],
+    "hashtags": [
+      "#sample"
+    ]
+  },
+  "engagement": {
+    "likes": 10,
+    "shares": 2,
+    "replies": 1,
+    "views": 100
+  },
+  "collection": {
+    "connector": "manual_connector",
+    "connector_version": "0.1.0",
+    "query": "sample query"
+  },
+  "raw": {
+    "id": "manual-item-002",
+    "note": "original payload shape varies per source"
+  }
+}

@@ -1,0 +1,468 @@
+{
+  "$defs": {
+    "Author": {
+      "additionalProperties": false,
+      "properties": {
+        "avatar_url": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Avatar Url"
+        },
+        "bio": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Bio"
+        },
+        "created_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Created At"
+        },
+        "display_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Display Name"
+        },
+        "followers": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Followers"
+        },
+        "following": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Following"
+        },
+        "handle": {
+          "title": "Handle",
+          "type": "string"
+        },
+        "platform_account_id": {
+          "title": "Platform Account Id",
+          "type": "string"
+        },
+        "self_labels": {
+          "items": {
+            "$ref": "#/$defs/SelfLabel"
+          },
+          "title": "Self Labels",
+          "type": "array"
+        },
+        "verified": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Verified"
+        }
+      },
+      "required": [
+        "platform_account_id",
+        "handle"
+      ],
+      "title": "Author",
+      "type": "object"
+    },
+    "Collection": {
+      "additionalProperties": false,
+      "properties": {
+        "connector": {
+          "title": "Connector",
+          "type": "string"
+        },
+        "connector_version": {
+          "title": "Connector Version",
+          "type": "string"
+        },
+        "query": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Query"
+        }
+      },
+      "required": [
+        "connector",
+        "connector_version"
+      ],
+      "title": "Collection",
+      "type": "object"
+    },
+    "Content": {
+      "additionalProperties": false,
+      "properties": {
+        "language": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Language"
+        },
+        "script": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Script"
+        },
+        "text": {
+          "title": "Text",
+          "type": "string"
+        }
+      },
+      "required": [
+        "text"
+      ],
+      "title": "Content",
+      "type": "object"
+    },
+    "Engagement": {
+      "additionalProperties": false,
+      "properties": {
+        "likes": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Likes"
+        },
+        "replies": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Replies"
+        },
+        "shares": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Shares"
+        },
+        "views": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Views"
+        }
+      },
+      "title": "Engagement",
+      "type": "object"
+    },
+    "ItemType": {
+      "enum": [
+        "post",
+        "comment",
+        "reply",
+        "message",
+        "paste",
+        "code_file"
+      ],
+      "title": "ItemType",
+      "type": "string"
+    },
+    "MediaAttachment": {
+      "additionalProperties": false,
+      "properties": {
+        "platform_media_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Platform Media Id"
+        },
+        "type": {
+          "$ref": "#/$defs/MediaType"
+        },
+        "url": {
+          "title": "Url",
+          "type": "string"
+        }
+      },
+      "required": [
+        "url",
+        "type"
+      ],
+      "title": "MediaAttachment",
+      "type": "object"
+    },
+    "MediaType": {
+      "enum": [
+        "image",
+        "video",
+        "file"
+      ],
+      "title": "MediaType",
+      "type": "string"
+    },
+    "Relations": {
+      "additionalProperties": false,
+      "properties": {
+        "hashtags": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Hashtags",
+          "type": "array"
+        },
+        "mentions": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Mentions",
+          "type": "array"
+        },
+        "quote_of": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Quote Of"
+        },
+        "reply_to": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reply To"
+        },
+        "repost_of": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Repost Of"
+        }
+      },
+      "title": "Relations",
+      "type": "object"
+    },
+    "SelfLabel": {
+      "enum": [
+        "parody",
+        "fan"
+      ],
+      "title": "SelfLabel",
+      "type": "string"
+    },
+    "Source": {
+      "enum": [
+        "replay",
+        "manual",
+        "telegram",
+        "github",
+        "x",
+        "facebook",
+        "instagram",
+        "youtube",
+        "discord",
+        "pastebin"
+      ],
+      "title": "Source",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "author": {
+      "$ref": "#/$defs/Author"
+    },
+    "collected_at": {
+      "format": "date-time",
+      "title": "Collected At",
+      "type": "string"
+    },
+    "collection": {
+      "$ref": "#/$defs/Collection"
+    },
+    "content": {
+      "$ref": "#/$defs/Content"
+    },
+    "dedup_key": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Dedup Key"
+    },
+    "engagement": {
+      "$ref": "#/$defs/Engagement"
+    },
+    "item_type": {
+      "$ref": "#/$defs/ItemType"
+    },
+    "media": {
+      "items": {
+        "$ref": "#/$defs/MediaAttachment"
+      },
+      "title": "Media",
+      "type": "array"
+    },
+    "platform_item_id": {
+      "title": "Platform Item Id",
+      "type": "string"
+    },
+    "posted_at": {
+      "anyOf": [
+        {
+          "format": "date-time",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Posted At"
+    },
+    "raw": {
+      "additionalProperties": true,
+      "title": "Raw",
+      "type": "object"
+    },
+    "relations": {
+      "$ref": "#/$defs/Relations"
+    },
+    "schema_version": {
+      "default": "1.0",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "source": {
+      "$ref": "#/$defs/Source"
+    },
+    "url": {
+      "title": "Url",
+      "type": "string"
+    }
+  },
+  "required": [
+    "source",
+    "platform_item_id",
+    "item_type",
+    "url",
+    "collected_at",
+    "author",
+    "content",
+    "collection"
+  ],
+  "title": "ItemV1",
+  "type": "object"
+}

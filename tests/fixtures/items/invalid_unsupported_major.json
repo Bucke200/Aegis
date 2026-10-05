@@ -1,0 +1,19 @@
+{
+  "schema_version": "2.0",
+  "source": "telegram",
+  "platform_item_id": "future-item",
+  "item_type": "message",
+  "url": "https://example.test/5",
+  "collected_at": "2026-10-01T03:04:05Z",
+  "author": {
+    "platform_account_id": "a5",
+    "handle": "@a5"
+  },
+  "content": {
+    "text": "hello"
+  },
+  "collection": {
+    "connector": "telegram_connector",
+    "connector_version": "0.1.0"
+  }
+}

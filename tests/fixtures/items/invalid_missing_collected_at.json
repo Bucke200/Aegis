@@ -1,0 +1,18 @@
+{
+  "schema_version": "1.0",
+  "source": "telegram",
+  "platform_item_id": "missing-time",
+  "item_type": "message",
+  "url": "https://example.test/1",
+  "author": {
+    "platform_account_id": "a1",
+    "handle": "@a1"
+  },
+  "content": {
+    "text": "hello"
+  },
+  "collection": {
+    "connector": "telegram_connector",
+    "connector_version": "0.1.0"
+  }
+}

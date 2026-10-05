@@ -1,0 +1,56 @@
+{
+  "schema_version": "1.0",
+  "source": "replay",
+  "platform_item_id": "replay-item-001",
+  "dedup_key": "466bda08e23a2a1a15c37e59660644f5ce02fbbdc9aa96dc2eb910cadcb009ef",
+  "item_type": "post",
+  "url": "https://example.test/replay/replay-item-001",
+  "posted_at": "2026-09-30T12:00:00Z",
+  "collected_at": "2026-10-01T03:04:05Z",
+  "author": {
+    "platform_account_id": "acct-replay-1",
+    "handle": "@sample_replay",
+    "display_name": "Sample Replay",
+    "bio": "Sample biography",
+    "avatar_url": "https://example.test/avatar.png",
+    "created_at": "2024-01-15T00:00:00Z",
+    "followers": 1234,
+    "following": 56,
+    "verified": false,
+    "self_labels": [
+      "parody"
+    ]
+  },
+  "content": {
+    "text": "Sample replay content for contract tests",
+    "language": null,
+    "script": null
+  },
+  "media": [],
+  "relations": {
+    "reply_to": null,
+    "repost_of": null,
+    "quote_of": null,
+    "mentions": [
+      "@sample_handle"
+    ],
+    "hashtags": [
+      "#sample"
+    ]
+  },
+  "engagement": {
+    "likes": 10,
+    "shares": 2,
+    "replies": 1,
+    "views": 100
+  },
+  "collection": {
+    "connector": "replay_connector",
+    "connector_version": "0.1.0",
+    "query": "sample query"
+  },
+  "raw": {
+    "id": "replay-item-001",
+    "note": "original payload shape varies per source"
+  }
+}

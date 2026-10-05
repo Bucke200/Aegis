@@ -21,17 +21,13 @@ class UUIDPrimaryKeyMixin:
 class CreatedAtMixin:
     """Adds a server-defaulted ``created_at`` timestamp."""
 
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), nullable=False
-    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
 
 class UpdatedAtMixin:
     """Adds server-defaulted ``created_at``/``updated_at`` timestamps."""
 
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), nullable=False
-    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),

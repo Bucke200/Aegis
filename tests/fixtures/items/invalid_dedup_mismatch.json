@@ -1,0 +1,20 @@
+{
+  "schema_version": "1.0",
+  "source": "telegram",
+  "platform_item_id": "dedup-mismatch",
+  "dedup_key": "0000000000000000000000000000000000000000000000000000000000000000",
+  "item_type": "message",
+  "url": "https://example.test/4",
+  "collected_at": "2026-10-01T03:04:05Z",
+  "author": {
+    "platform_account_id": "a4",
+    "handle": "@a4"
+  },
+  "content": {
+    "text": "hello"
+  },
+  "collection": {
+    "connector": "telegram_connector",
+    "connector_version": "0.1.0"
+  }
+}

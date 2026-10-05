@@ -1,0 +1,25 @@
+{
+  "schema_version": "1.0",
+  "source": "instagram",
+  "platform_item_id": "bad-media",
+  "item_type": "post",
+  "url": "https://example.test/3",
+  "collected_at": "2026-10-01T03:04:05Z",
+  "author": {
+    "platform_account_id": "a3",
+    "handle": "@a3"
+  },
+  "content": {
+    "text": "hello"
+  },
+  "media": [
+    {
+      "url": "https://example.test/audio.mp3",
+      "type": "audio"
+    }
+  ],
+  "collection": {
+    "connector": "instagram_connector",
+    "connector_version": "0.1.0"
+  }
+}

@@ -45,12 +45,8 @@ class ScoringConfig(Base):
     weights: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
     bands: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
     overrides: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
-    created_by: Mapped[uuid.UUID | None] = mapped_column(
-        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
-    )
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), nullable=False
-    )
+    created_by: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
 
 class Detection(Base, UUIDPrimaryKeyMixin):
@@ -67,30 +63,18 @@ class Detection(Base, UUIDPrimaryKeyMixin):
         Index("ix_detections_account_vip", "account_id", "vip_id"),
     )
 
-    scope: Mapped[DetectionScope] = mapped_column(
-        enum_column(DetectionScope, name="detection_scope"), nullable=False
-    )
-    item_id: Mapped[uuid.UUID | None] = mapped_column(
-        ForeignKey("items.id", ondelete="CASCADE"), nullable=True
-    )
-    account_id: Mapped[uuid.UUID | None] = mapped_column(
-        ForeignKey("accounts.id", ondelete="CASCADE"), nullable=True
-    )
-    vip_id: Mapped[uuid.UUID | None] = mapped_column(
-        ForeignKey("vips.id", ondelete="CASCADE"), nullable=True
-    )
+    scope: Mapped[DetectionScope] = mapped_column(enum_column(DetectionScope, name="detection_scope"), nullable=False)
+    item_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("items.id", ondelete="CASCADE"), nullable=True)
+    account_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("accounts.id", ondelete="CASCADE"), nullable=True)
+    vip_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("vips.id", ondelete="CASCADE"), nullable=True)
     detector: Mapped[str] = mapped_column(Text, nullable=False)
     model_version: Mapped[str] = mapped_column(Text, nullable=False)
-    input_variant: Mapped[InputVariant] = mapped_column(
-        enum_column(InputVariant, name="input_variant"), nullable=False
-    )
+    input_variant: Mapped[InputVariant] = mapped_column(enum_column(InputVariant, name="input_variant"), nullable=False)
     score: Mapped[float] = mapped_column(Float, nullable=False)
     label: Mapped[str | None] = mapped_column(Text)
     spans: Mapped[list[Any]] = mapped_column(JSONB, nullable=False, default=list)
     details: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), nullable=False
-    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
 
 class Incident(Base, UUIDPrimaryKeyMixin):
@@ -135,15 +119,9 @@ class Incident(Base, UUIDPrimaryKeyMixin):
     subject_type: Mapped[IncidentSubject] = mapped_column(
         enum_column(IncidentSubject, name="incident_subject"), nullable=False
     )
-    item_id: Mapped[uuid.UUID | None] = mapped_column(
-        ForeignKey("items.id", ondelete="CASCADE"), nullable=True
-    )
-    account_id: Mapped[uuid.UUID | None] = mapped_column(
-        ForeignKey("accounts.id", ondelete="CASCADE"), nullable=True
-    )
-    subject_vip_id: Mapped[uuid.UUID | None] = mapped_column(
-        ForeignKey("vips.id", ondelete="CASCADE"), nullable=True
-    )
+    item_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("items.id", ondelete="CASCADE"), nullable=True)
+    account_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("accounts.id", ondelete="CASCADE"), nullable=True)
+    subject_vip_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("vips.id", ondelete="CASCADE"), nullable=True)
     source: Mapped[Source] = mapped_column(enum_column(Source, name="incident_source"), nullable=False)
     language: Mapped[str | None] = mapped_column(Text)
     risk_score: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
@@ -158,15 +136,11 @@ class Incident(Base, UUIDPrimaryKeyMixin):
         nullable=False,
         default=IncidentStatus.NEW,
     )
-    assignee_id: Mapped[uuid.UUID | None] = mapped_column(
-        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
-    )
+    assignee_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     campaign_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("campaigns.id", ondelete="SET NULL"), nullable=True
     )
-    scoring_config_version: Mapped[int | None] = mapped_column(
-        ForeignKey("scoring_configs.version"), nullable=True
-    )
+    scoring_config_version: Mapped[int | None] = mapped_column(ForeignKey("scoring_configs.version"), nullable=True)
     outcome: Mapped[IncidentOutcome | None] = mapped_column(
         enum_column(IncidentOutcome, name="incident_outcome"), nullable=True
     )
@@ -176,9 +150,7 @@ class Incident(Base, UUIDPrimaryKeyMixin):
         ForeignKey("incidents.id", ondelete="SET NULL"), nullable=True
     )
     below_threshold: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), nullable=False
-    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
     )
@@ -187,42 +159,26 @@ class Incident(Base, UUIDPrimaryKeyMixin):
 class IncidentVip(Base):
     __tablename__ = "incident_vips"
 
-    incident_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("incidents.id", ondelete="CASCADE"), primary_key=True
-    )
-    vip_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("vips.id", ondelete="CASCADE"), primary_key=True
-    )
+    incident_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("incidents.id", ondelete="CASCADE"), primary_key=True)
+    vip_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("vips.id", ondelete="CASCADE"), primary_key=True)
 
 
 class IncidentItem(Base):
     __tablename__ = "incident_items"
     __table_args__ = (Index("ix_incident_items_item_id", "item_id"),)
 
-    incident_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("incidents.id", ondelete="CASCADE"), primary_key=True
-    )
-    item_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("items.id", ondelete="CASCADE"), primary_key=True
-    )
-    attached_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), nullable=False
-    )
+    incident_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("incidents.id", ondelete="CASCADE"), primary_key=True)
+    item_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("items.id", ondelete="CASCADE"), primary_key=True)
+    attached_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     item_risk: Mapped[float | None] = mapped_column(Float)
 
 
 class IncidentEvent(Base, UUIDPrimaryKeyMixin):
     __tablename__ = "incident_events"
 
-    incident_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("incidents.id", ondelete="CASCADE"), nullable=False
-    )
-    at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), nullable=False
-    )
-    actor_id: Mapped[uuid.UUID | None] = mapped_column(
-        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
-    )
+    incident_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("incidents.id", ondelete="CASCADE"), nullable=False)
+    at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    actor_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     event_type: Mapped[IncidentEventType] = mapped_column(
         enum_column(IncidentEventType, name="incident_event_type"), nullable=False
     )
@@ -234,35 +190,23 @@ class IncidentEvent(Base, UUIDPrimaryKeyMixin):
 class IncidentNote(Base, UUIDPrimaryKeyMixin):
     __tablename__ = "incident_notes"
 
-    incident_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("incidents.id", ondelete="CASCADE"), nullable=False
-    )
-    author_id: Mapped[uuid.UUID | None] = mapped_column(
-        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
-    )
+    incident_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("incidents.id", ondelete="CASCADE"), nullable=False)
+    author_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     body: Mapped[str] = mapped_column(Text, nullable=False)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), nullable=False
-    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
 
 class Campaign(Base, UUIDPrimaryKeyMixin):
     __tablename__ = "campaigns"
 
-    vip_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("vips.id", ondelete="CASCADE"), nullable=False
-    )
+    vip_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("vips.id", ondelete="CASCADE"), nullable=False)
     status: Mapped[CampaignStatus] = mapped_column(
         enum_column(CampaignStatus, name="campaign_status"),
         nullable=False,
         default=CampaignStatus.OPEN,
     )
-    first_seen_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), nullable=False
-    )
-    last_seen_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), nullable=False
-    )
+    first_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     account_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     item_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     coordination_score: Mapped[float | None] = mapped_column(Float)
@@ -281,36 +225,20 @@ class CampaignMember(Base, UUIDPrimaryKeyMixin):
         UniqueConstraint("campaign_id", "account_id"),
     )
 
-    campaign_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("campaigns.id", ondelete="CASCADE"), nullable=False
-    )
+    campaign_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("campaigns.id", ondelete="CASCADE"), nullable=False)
     member_type: Mapped[CampaignMemberType] = mapped_column(
         enum_column(CampaignMemberType, name="campaign_member_type"), nullable=False
     )
-    account_id: Mapped[uuid.UUID | None] = mapped_column(
-        ForeignKey("accounts.id", ondelete="CASCADE"), nullable=True
-    )
-    item_id: Mapped[uuid.UUID | None] = mapped_column(
-        ForeignKey("items.id", ondelete="CASCADE"), nullable=True
-    )
+    account_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("accounts.id", ondelete="CASCADE"), nullable=True)
+    item_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("items.id", ondelete="CASCADE"), nullable=True)
 
 
 class AccountEdge(Base):
     __tablename__ = "account_edges"
 
-    src_account_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("accounts.id", ondelete="CASCADE"), primary_key=True
-    )
-    dst_account_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("accounts.id", ondelete="CASCADE"), primary_key=True
-    )
-    edge_type: Mapped[EdgeType] = mapped_column(
-        enum_column(EdgeType, name="edge_type"), primary_key=True
-    )
+    src_account_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("accounts.id", ondelete="CASCADE"), primary_key=True)
+    dst_account_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("accounts.id", ondelete="CASCADE"), primary_key=True)
+    edge_type: Mapped[EdgeType] = mapped_column(enum_column(EdgeType, name="edge_type"), primary_key=True)
     weight: Mapped[float] = mapped_column(Float, nullable=False, default=1.0)
-    first_seen_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), nullable=False
-    )
-    last_seen_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), nullable=False
-    )
+    first_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)

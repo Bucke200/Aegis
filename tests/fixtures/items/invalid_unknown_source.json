@@ -1,0 +1,19 @@
+{
+  "schema_version": "1.0",
+  "source": "myspace",
+  "platform_item_id": "unknown-source",
+  "item_type": "post",
+  "url": "https://example.test/2",
+  "collected_at": "2026-10-01T03:04:05Z",
+  "author": {
+    "platform_account_id": "a2",
+    "handle": "@a2"
+  },
+  "content": {
+    "text": "hello"
+  },
+  "collection": {
+    "connector": "x",
+    "connector_version": "0.1.0"
+  }
+}

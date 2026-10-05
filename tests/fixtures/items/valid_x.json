@@ -1,0 +1,60 @@
+{
+  "schema_version": "1.0",
+  "source": "x",
+  "platform_item_id": "x-item-005",
+  "dedup_key": "376cd2244713c1cb9a99bdba174d673bf83d5a6c93973ca315580bd66aea2295",
+  "item_type": "post",
+  "url": "https://example.test/x/x-item-005",
+  "posted_at": "2026-09-30T12:00:00Z",
+  "collected_at": "2026-10-01T03:04:05Z",
+  "author": {
+    "platform_account_id": "acct-x-5",
+    "handle": "@sample_x",
+    "display_name": "Sample X",
+    "bio": "Sample biography",
+    "avatar_url": "https://example.test/avatar.png",
+    "created_at": "2024-01-15T00:00:00Z",
+    "followers": 1234,
+    "following": 56,
+    "verified": false,
+    "self_labels": []
+  },
+  "content": {
+    "text": "Sample x content for contract tests",
+    "language": null,
+    "script": null
+  },
+  "media": [
+    {
+      "url": "https://example.test/photo.jpg",
+      "type": "image",
+      "platform_media_id": "m-1"
+    }
+  ],
+  "relations": {
+    "reply_to": null,
+    "repost_of": null,
+    "quote_of": null,
+    "mentions": [
+      "@sample_handle"
+    ],
+    "hashtags": [
+      "#sample"
+    ]
+  },
+  "engagement": {
+    "likes": 10,
+    "shares": 2,
+    "replies": 1,
+    "views": 100
+  },
+  "collection": {
+    "connector": "x_connector",
+    "connector_version": "0.1.0",
+    "query": "sample query"
+  },
+  "raw": {
+    "id": "x-item-005",
+    "note": "original payload shape varies per source"
+  }
+}
