@@ -50,6 +50,10 @@ class StoredObject:
     size: int
 
 
+class DeleteFailedError(RuntimeError):
+    """Raised when a batch delete reports per-object failures."""
+
+
 class ObjectStorage:
     """Thin wrapper over a MinIO client with Aegis bucket conventions."""
 
@@ -184,10 +188,15 @@ class ObjectStorage:
         """Delete an object or a specific version, optionally bypassing retention."""
 
         if bypass_governance:
-            self.client.remove_objects(
-                bucket,
-                [DeleteObject(object_key, version_id=version_id)],
-                bypass_governance_mode=True,
+            failures = list(
+                self.client.remove_objects(
+                    bucket,
+                    [DeleteObject(object_key, version_id=version_id)],
+                    bypass_governance_mode=True,
+                )
             )
+            if failures:
+                messages = [getattr(failure, "message", str(failure)) for failure in failures]
+                raise DeleteFailedError(f"failed to delete {object_key}: {messages}")
         else:
             self.client.remove_object(bucket, object_key, version_id=version_id)

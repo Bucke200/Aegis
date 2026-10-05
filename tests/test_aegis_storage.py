@@ -13,6 +13,7 @@ from minio.commonconfig import ENABLED, GOVERNANCE
 
 from aegis.common.config import Settings
 from aegis.common.storage import (
+    DeleteFailedError,
     ObjectStorage,
     evidence_object_key,
     media_object_key,
@@ -110,6 +111,7 @@ def test_delete_specific_version() -> None:
 
 def test_delete_with_bypass_uses_batch_api() -> None:
     client = Mock(spec=Minio)
+    client.remove_objects.return_value = []
     storage = make_storage(client)
 
     storage.delete("aegis-evidence", "evidence/x", bypass_governance=True)
@@ -117,6 +119,17 @@ def test_delete_with_bypass_uses_batch_api() -> None:
     client.remove_object.assert_not_called()
     _, kwargs = client.remove_objects.call_args
     assert kwargs["bypass_governance_mode"] is True
+
+
+def test_delete_with_bypass_raises_on_failure() -> None:
+    client = Mock(spec=Minio)
+    failure = Mock()
+    failure.message = "Access Denied"
+    client.remove_objects.return_value = [failure]
+    storage = make_storage(client)
+
+    with pytest.raises(DeleteFailedError, match="Access Denied"):
+        storage.delete("aegis-evidence", "evidence/x", bypass_governance=True)
 
 
 def test_set_governance_retention() -> None:
