@@ -79,7 +79,7 @@ async def test_committed_row_is_published_and_marked(pg_engine: Engine) -> None:
 
     async with broker_channel(_broker_url()) as channel:
         exchange = await channel.declare_exchange(EVENTS_INCIDENTS, "topic", durable=True)
-        queue = await channel.declare_queue(f"test.outbox.{marker}", durable=False, auto_delete=True)
+        queue = await channel.declare_queue(f"test.outbox.{marker}", durable=False, exclusive=True, auto_delete=True)
         await queue.bind(exchange, "incident.#")
 
         published = await publish_once(channel)
@@ -106,7 +106,9 @@ async def test_failed_marking_republishes_at_least_once(pg_engine: Engine, monke
 
     async with broker_channel(_broker_url()) as channel:
         exchange = await channel.declare_exchange(EVENTS_INCIDENTS, "topic", durable=True)
-        queue = await channel.declare_queue(f"test.outbox.redeliver.{marker}", durable=False, auto_delete=True)
+        queue = await channel.declare_queue(
+            f"test.outbox.redeliver.{marker}", durable=False, exclusive=True, auto_delete=True
+        )
         await queue.bind(exchange, "incident.#")
 
         await publish_once(channel)
