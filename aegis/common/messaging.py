@@ -84,6 +84,16 @@ def attempts_of(message: AbstractIncomingMessage) -> int:
     return int(cast("int | str", headers.get(ATTEMPTS_HEADER, 0)))
 
 
+def event_id_of(message: AbstractIncomingMessage) -> str | None:
+    """Return the outbox event id used by consumers to deduplicate."""
+
+    if message.message_id:
+        return str(message.message_id)
+    headers = message.headers or {}
+    event_id = headers.get("event_id")
+    return str(event_id) if event_id is not None else None
+
+
 def default_exchange(channel: AbstractChannel) -> AbstractExchange:
     """Return the channel's default (nameless) exchange."""
 
@@ -123,10 +133,13 @@ class Producer:
         *,
         headers: dict[str, Any] | None = None,
         priority: int | None = None,
+        message_id: str | None = None,
     ) -> None:
         message = encode_message(payload, headers)
         if priority is not None:
             message.priority = priority
+        if message_id is not None:
+            message.message_id = message_id
         if isinstance(exchange, str):
             exchange = await self.channel.get_exchange(exchange)
         await exchange.publish(message, routing_key=routing_key)
