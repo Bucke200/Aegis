@@ -73,6 +73,9 @@ logs/
 reports/eval/report.json
 reports/eval/report.md
 
+# Generated datasets
+data/synthetic/
+
 # Model weights cache (repository root only)
 /models/
 
