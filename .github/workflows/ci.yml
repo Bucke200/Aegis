@@ -70,32 +70,48 @@ jobs:
         run: uv sync --frozen
       - name: Start MinIO
         run: |
-          docker run -d --name minio --network host \
-            -e MINIO_ROOT_USER=aegis -e MINIO_ROOT_PASSWORD=aegis123 \
-            minio/minio:latest server /data --console-address ":9001"
-          for attempt in $(seq 1 30); do
-            if curl -fsS http://localhost:9000/minio/health/live; then exit 0; fi
+          if ! pull_output=$(docker pull minio/minio:latest 2>&1); then
+            echo "::error::minio image pull failed: $pull_output"
+            exit 1
+          fi
+          if ! run_output=$(docker run -d --name minio -p 9000:9000 \
+              -e MINIO_ROOT_USER=aegis -e MINIO_ROOT_PASSWORD=aegis123 \
+              minio/minio:latest server /data 2>&1); then
+            echo "::error::minio container start failed: $run_output"
+            exit 1
+          fi
+          for attempt in $(seq 1 60); do
+            if curl -fsS http://localhost:9000/minio/health/live; then
+              echo "MinIO is ready"
+              exit 0
+            fi
             sleep 2
           done
+          echo "::error::minio did not become healthy"
+          docker logs minio || true
           exit 1
       - name: Provision MinIO buckets, users, and policies
         run: |
-          docker run --rm --network host \
-            -v "${{ github.workspace }}/deploy/minio:/policies:ro" \
-            -e MC_HOST_local="http://aegis:aegis123@localhost:9000" \
-            minio/mc:latest sh -c '
-              set -e
-              mc mb --ignore-existing --with-lock local/aegis-evidence
-              mc mb --ignore-existing local/aegis-media
-              mc version enable local/aegis-evidence
-              mc version enable local/aegis-media
-              mc admin user add local aegis-app aegis-app-secret
-              mc admin user add local aegis-retention aegis-retention-secret
-              mc admin policy create local aegis-app /policies/app-policy.json
-              mc admin policy create local aegis-retention /policies/retention-policy.json
-              mc admin policy attach local aegis-app --user aegis-app
-              mc admin policy attach local aegis-retention --user aegis-retention
-            '
+          if ! provision_output=$(docker run --rm \
+              --add-host=host.docker.internal:host-gateway \
+              -v "${{ github.workspace }}/deploy/minio:/policies:ro" \
+              -e MC_HOST_local="http://host.docker.internal:9000" \
+              minio/mc:latest sh -c '
+                set -e
+                mc mb --ignore-existing --with-lock local/aegis-evidence
+                mc mb --ignore-existing local/aegis-media
+                mc version enable local/aegis-evidence
+                mc version enable local/aegis-media
+                mc admin user add local aegis-app aegis-app-secret
+                mc admin user add local aegis-retention aegis-retention-secret
+                mc admin policy create local aegis-app /policies/app-policy.json
+                mc admin policy create local aegis-retention /policies/retention-policy.json
+                mc admin policy attach local aegis-app --user aegis-app
+                mc admin policy attach local aegis-retention --user aegis-retention
+              ' 2>&1); then
+            echo "::error::minio provisioning failed: $provision_output"
+            exit 1
+          fi
       - name: Run tests
         run: uv run pytest
 
