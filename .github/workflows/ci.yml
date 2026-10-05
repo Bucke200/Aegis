@@ -92,7 +92,7 @@ jobs:
               --add-host=host.docker.internal:host-gateway \
               -v "${{ github.workspace }}/deploy/minio:/policies:ro" \
               --entrypoint /bin/sh \
-              -e MC_HOST_local="http://host.docker.internal:9000" \
+              -e MC_HOST_local="http://aegis:aegis123@host.docker.internal:9000" \
               bitnamilegacy/minio:latest -c '
                 set -e
                 mc mb --ignore-existing --with-lock local/aegis-evidence
