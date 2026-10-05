@@ -73,8 +73,8 @@ logs/
 reports/eval/report.json
 reports/eval/report.md
 
-# Model weights cache
-models/
+# Model weights cache (repository root only)
+/models/
 
 # Database
 *.db

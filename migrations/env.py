@@ -8,6 +8,7 @@ from __future__ import annotations
 from alembic import context
 from sqlalchemy import create_engine, pool
 
+import aegis.common.models  # noqa: F401
 from aegis.common.config import get_settings
 from aegis.common.db import Base
 
