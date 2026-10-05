@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import uvicorn
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
 
 from aegis import __version__
+from aegis.api.routers.vips import router as vips_router
+from aegis.api.services.vips import DuplicateVipConfigError, VipNotFoundError
 from aegis.common.config import get_settings
 from aegis.common.health import router as health_router
 from aegis.common.logging import configure_logging
@@ -17,8 +20,18 @@ def create_app() -> FastAPI:
     settings = get_settings()
     configure_logging()
     app = FastAPI(title="Aegis", version=__version__)
-    app.include_router(health_router)
     app.state.settings = settings
+    app.include_router(health_router)
+    app.include_router(vips_router)
+
+    @app.exception_handler(VipNotFoundError)
+    async def _vip_not_found(request: Request, exc: VipNotFoundError) -> JSONResponse:
+        return JSONResponse(status_code=404, content={"detail": str(exc)})
+
+    @app.exception_handler(DuplicateVipConfigError)
+    async def _vip_conflict(request: Request, exc: DuplicateVipConfigError) -> JSONResponse:
+        return JSONResponse(status_code=409, content={"detail": str(exc)})
+
     return app
 
 

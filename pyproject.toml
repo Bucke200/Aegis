@@ -88,6 +88,17 @@ extend-exclude = ["migrations/versions"]
 select = ["E", "F", "W", "I", "UP", "B", "SIM", "C4", "PT"]
 ignore = ["E501"]
 
+[tool.ruff.lint.flake8-bugbear]
+extend-immutable-calls = [
+    "fastapi.Body",
+    "fastapi.Depends",
+    "fastapi.File",
+    "fastapi.Form",
+    "fastapi.Header",
+    "fastapi.Path",
+    "fastapi.Query",
+]
+
 [tool.mypy]
 python_version = "3.12"
 strict = true

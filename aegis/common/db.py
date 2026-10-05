@@ -56,6 +56,20 @@ def session_scope() -> Iterator[Session]:
         session.close()
 
 
+def get_session() -> Iterator[Session]:
+    """FastAPI dependency: a session that commits on success."""
+
+    session = get_session_factory()()
+    try:
+        yield session
+        session.commit()
+    except Exception:
+        session.rollback()
+        raise
+    finally:
+        session.close()
+
+
 def check_database() -> bool:
     """Return True when the database answers a trivial query."""
 
