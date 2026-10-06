@@ -37,6 +37,7 @@ def test_insecure_defaults_detected(monkeypatch) -> None:
 def test_insecure_defaults_cleared(monkeypatch) -> None:
     monkeypatch.setenv("AEGIS_JWT_SECRET", "a-strong-secret")
     monkeypatch.setenv("AEGIS_APP_ENCRYPTION_KEY", "another-strong-secret")
+    monkeypatch.setenv("AEGIS_FINGERPRINT_SALT", "a-different-salt")
     monkeypatch.setenv("AEGIS_MINIO_SECRET_KEY", "not-the-default")
     settings = Settings(_env_file=None)
     assert check_insecure_defaults(settings) == []

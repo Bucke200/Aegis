@@ -4,19 +4,28 @@ from __future__ import annotations
 
 import uuid
 
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 from sqlalchemy.orm import Session
 
 from aegis.api import schemas
+from aegis.api.services.fingerprints import FingerprintService
 from aegis.api.services.vips import VipService
 from aegis.common.db import get_session
-from aegis.common.models.enums import AliasKind
+from aegis.common.models.enums import AliasKind, ReferenceMediaKind
+from aegis.common.storage import ObjectStorage, get_object_storage
 
 router = APIRouter(prefix="/vips", tags=["vips"])
+
+MAX_REFERENCE_MEDIA_BYTES = 10 * 1024 * 1024
+ALLOWED_IMAGE_TYPES = {"image/png", "image/jpeg", "image/webp"}
 
 
 def get_vip_service(session: Session = Depends(get_session)) -> VipService:
     return VipService(session)
+
+
+def get_fingerprint_service(session: Session = Depends(get_session)) -> FingerprintService:
+    return FingerprintService(session)
 
 
 @router.post("", response_model=schemas.VipRead, status_code=status.HTTP_201_CREATED)
@@ -144,3 +153,86 @@ def remove_official_account(
     service: VipService = Depends(get_vip_service),
 ) -> None:
     service.remove_official_account(vip_id, account_id)
+
+
+@router.post(
+    "/{vip_id}/reference-media",
+    response_model=schemas.ReferenceMediaRead,
+    status_code=status.HTTP_201_CREATED,
+)
+async def upload_reference_media(
+    vip_id: uuid.UUID,
+    file: UploadFile = File(...),
+    kind: ReferenceMediaKind = Form(ReferenceMediaKind.PORTRAIT),
+    service: VipService = Depends(get_vip_service),
+    storage: ObjectStorage = Depends(get_object_storage),
+) -> schemas.ReferenceMediaRead:
+    if file.content_type not in ALLOWED_IMAGE_TYPES:
+        raise HTTPException(status_code=415, detail="unsupported image type")
+    data = await file.read(MAX_REFERENCE_MEDIA_BYTES + 1)
+    if len(data) > MAX_REFERENCE_MEDIA_BYTES:
+        raise HTTPException(status_code=413, detail="image too large")
+    media = service.add_reference_media(
+        vip_id,
+        data=data,
+        kind=kind,
+        content_type=file.content_type,
+        storage=storage,
+    )
+    return schemas.ReferenceMediaRead.model_validate(media)
+
+
+@router.get("/{vip_id}/reference-media", response_model=list[schemas.ReferenceMediaRead])
+def list_reference_media(
+    vip_id: uuid.UUID,
+    service: VipService = Depends(get_vip_service),
+) -> list[schemas.ReferenceMediaRead]:
+    return [schemas.ReferenceMediaRead.model_validate(row) for row in service.list_reference_media(vip_id)]
+
+
+@router.delete(
+    "/{vip_id}/reference-media/{media_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+def remove_reference_media(
+    vip_id: uuid.UUID,
+    media_id: uuid.UUID,
+    service: VipService = Depends(get_vip_service),
+) -> None:
+    service.remove_reference_media(vip_id, media_id)
+
+
+@router.post(
+    "/{vip_id}/sensitive-fingerprints",
+    response_model=schemas.FingerprintRead,
+    status_code=status.HTTP_201_CREATED,
+)
+def register_fingerprint(
+    vip_id: uuid.UUID,
+    payload: schemas.FingerprintCreate,
+    service: FingerprintService = Depends(get_fingerprint_service),
+) -> schemas.FingerprintRead:
+    return schemas.FingerprintRead.model_validate(service.register(vip_id, payload))
+
+
+@router.get(
+    "/{vip_id}/sensitive-fingerprints",
+    response_model=list[schemas.FingerprintRead],
+)
+def list_fingerprints(
+    vip_id: uuid.UUID,
+    service: FingerprintService = Depends(get_fingerprint_service),
+) -> list[schemas.FingerprintRead]:
+    return [schemas.FingerprintRead.model_validate(row) for row in service.list(vip_id)]
+
+
+@router.delete(
+    "/{vip_id}/sensitive-fingerprints/{fingerprint_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+def remove_fingerprint(
+    vip_id: uuid.UUID,
+    fingerprint_id: uuid.UUID,
+    service: FingerprintService = Depends(get_fingerprint_service),
+) -> None:
+    service.remove(vip_id, fingerprint_id)

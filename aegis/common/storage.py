@@ -200,3 +200,9 @@ class ObjectStorage:
                 raise DeleteFailedError(f"failed to delete {object_key}: {messages}")
         else:
             self.client.remove_object(bucket, object_key, version_id=version_id)
+
+
+def get_object_storage() -> ObjectStorage:
+    """FastAPI dependency returning storage built from settings."""
+
+    return ObjectStorage.from_settings()

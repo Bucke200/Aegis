@@ -7,7 +7,13 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from aegis.common.models.enums import AliasKind, Sensitivity, Source
+from aegis.common.models.enums import (
+    AliasKind,
+    FingerprintKind,
+    ReferenceMediaKind,
+    Sensitivity,
+    Source,
+)
 
 
 class VipCreate(BaseModel):
@@ -82,3 +88,30 @@ class OfficialAccountRead(BaseModel):
     verification_evidence: str | None
     profile_refreshed_at: datetime | None
     verified_at: datetime | None
+
+
+class ReferenceMediaRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    vip_id: uuid.UUID
+    object_key: str
+    kind: ReferenceMediaKind
+    phash: str | None
+    dhash: str | None
+    created_at: datetime
+
+
+class FingerprintCreate(BaseModel):
+    kind: FingerprintKind
+    value: str = Field(min_length=1)
+
+
+class FingerprintRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    vip_id: uuid.UUID
+    kind: FingerprintKind
+    salt_id: str
+    created_at: datetime

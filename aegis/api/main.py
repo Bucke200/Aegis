@@ -10,7 +10,9 @@ from aegis import __version__
 from aegis.api.routers.vips import router as vips_router
 from aegis.api.services.vips import DuplicateVipConfigError, VipNotFoundError
 from aegis.common.config import get_settings
+from aegis.common.fingerprints import InvalidFingerprintError
 from aegis.common.health import router as health_router
+from aegis.common.images import InvalidImageError
 from aegis.common.logging import configure_logging
 
 
@@ -31,6 +33,14 @@ def create_app() -> FastAPI:
     @app.exception_handler(DuplicateVipConfigError)
     async def _vip_conflict(request: Request, exc: DuplicateVipConfigError) -> JSONResponse:
         return JSONResponse(status_code=409, content={"detail": str(exc)})
+
+    @app.exception_handler(InvalidImageError)
+    async def _invalid_image(request: Request, exc: InvalidImageError) -> JSONResponse:
+        return JSONResponse(status_code=422, content={"detail": str(exc)})
+
+    @app.exception_handler(InvalidFingerprintError)
+    async def _invalid_fingerprint(request: Request, exc: InvalidFingerprintError) -> JSONResponse:
+        return JSONResponse(status_code=422, content={"detail": str(exc)})
 
     return app
 

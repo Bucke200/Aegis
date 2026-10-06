@@ -16,13 +16,16 @@ from sqlalchemy.orm import Session
 
 from aegis.api import schemas
 from aegis.common.audit import record
-from aegis.common.models.enums import AliasKind
+from aegis.common.images import hash_image
+from aegis.common.models.enums import AliasKind, ReferenceMediaKind
 from aegis.common.models.reference import (
     VIP,
     OfficialAccount,
+    ReferenceMedia,
     VipAlias,
     VipContextKeyword,
 )
+from aegis.common.storage import ObjectStorage, sha256_hex
 
 
 class VipNotFoundError(LookupError):
@@ -236,3 +239,63 @@ class VipService:
     @staticmethod
     def _bump(vip: VIP) -> None:
         vip.config_version += 1
+
+    def list_reference_media(self, vip_id: uuid.UUID) -> list[ReferenceMedia]:
+        self.get_vip(vip_id)
+        return list(
+            self.session.execute(
+                select(ReferenceMedia).where(ReferenceMedia.vip_id == vip_id).order_by(ReferenceMedia.created_at)
+            ).scalars()
+        )
+
+    def add_reference_media(
+        self,
+        vip_id: uuid.UUID,
+        *,
+        data: bytes,
+        kind: ReferenceMediaKind,
+        content_type: str,
+        storage: ObjectStorage,
+    ) -> ReferenceMedia:
+        vip = self.get_vip(vip_id)
+        digest = sha256_hex(data)
+        object_key = f"reference/{vip.id}/{digest}"
+        storage.put_bytes(storage.media_bucket, object_key, data, content_type=content_type)
+        phash_value, dhash_value = hash_image(data)
+        media = ReferenceMedia(
+            vip_id=vip.id,
+            object_key=object_key,
+            kind=kind,
+            phash=phash_value,
+            dhash=dhash_value,
+        )
+        self.session.add(media)
+        self.session.flush()
+        self._bump(vip)
+        record(
+            self.session,
+            action="vip.reference_media_added",
+            target=str(vip.id),
+            details={
+                "kind": kind.value,
+                "object_key": object_key,
+                "phash": phash_value,
+                "dhash": dhash_value,
+            },
+        )
+        return media
+
+    def remove_reference_media(self, vip_id: uuid.UUID, media_id: uuid.UUID) -> None:
+        vip = self.get_vip(vip_id)
+        media = self.session.get(ReferenceMedia, media_id)
+        if media is None or media.vip_id != vip_id:
+            raise VipNotFoundError("reference media not found")
+        details = {"kind": media.kind.value, "object_key": media.object_key}
+        self.session.delete(media)
+        self._bump(vip)
+        record(
+            self.session,
+            action="vip.reference_media_removed",
+            target=str(vip.id),
+            details=details,
+        )

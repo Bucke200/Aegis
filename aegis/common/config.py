@@ -48,6 +48,10 @@ class Settings(BaseSettings):
 
     app_encryption_key: SecretStr = SecretStr("change-me")
 
+    fingerprint_salt_id: str = "default"
+    fingerprint_salt: SecretStr = SecretStr("change-me")
+    fingerprint_previous_salts: str = ""
+
     llm_provider: str = ""
     llm_model: str = ""
     llm_api_key: SecretStr = SecretStr("")
@@ -96,6 +100,7 @@ class Settings(BaseSettings):
 DEFAULT_SECRET_VALUES: dict[str, str] = {
     "jwt_secret": "change-me",
     "app_encryption_key": "change-me",
+    "fingerprint_salt": "change-me",
     "minio_secret_key": "aegis123",
 }
 
