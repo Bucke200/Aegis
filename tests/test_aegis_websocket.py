@@ -111,7 +111,7 @@ def client(pg_engine) -> Iterator[TestClient]:
             session.close()
 
     app.dependency_overrides[get_session] = override_session
-    app.state.event_consumer_enabled = False
+    app.state.event_consumer_enabled = bool(os.environ.get("AEGIS_TEST_RABBITMQ_URL"))
     try:
         with TestClient(app) as test_client:
             yield test_client
