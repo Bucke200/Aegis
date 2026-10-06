@@ -50,7 +50,7 @@ def test_names_and_exchanges() -> None:
 
 def test_work_queue_arguments_include_priority() -> None:
     assert work_queue_arguments(ITEMS_RAW) == {"x-queue-type": "quorum"}
-    assert work_queue_arguments(ITEMS_NORMALIZED)["x-max-priority"] == 2
+    assert work_queue_arguments(ITEMS_NORMALIZED) == {"x-max-priority": 2}
     assert PRIORITY_QUEUES[ITEMS_NORMALIZED] == 2
 
 

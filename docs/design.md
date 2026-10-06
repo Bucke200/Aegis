@@ -133,7 +133,7 @@ graph LR
 
 - Quorum queues with publisher confirms. Consumers acknowledge only after the database commit, which together with dedup keys gives effectively-once processing.
 - Every work queue has a DLQ. Messages move to the DLQ after N retries with exponential backoff (via a delayed-retry queue).
-- `items.normalized` uses message priority (`x-max-priority: 2`, the only two levels quorum queues use in practice): manual submissions and items from accounts already linked to open incidents get high priority; everything else is normal.
+- `items.normalized` is a **classic durable queue** with `x-max-priority: 2` (RabbitMQ quorum queues do not support priorities): manual submissions and items from accounts already linked to open incidents get high priority; everything else is normal.
 - Prefetch is tuned per worker type: high for the analysis worker, low (1–2) for the media worker and evidence capture.
 - The scorer runs in-process inside the analysis and media workers, so there is no `scoring` queue; the analysis worker also consumes `media.analyzed` to run text detection on OCR output and to re-score after media analysis.
 
@@ -142,7 +142,7 @@ All queues and exchanges:
 | Name | Type | Producer → consumer | Purpose |
 |---|---|---|---|
 | `items.raw` | quorum queue | collectors → normalizer | raw collected items |
-| `items.normalized` | quorum queue (priority) | normalizer → analysis worker | normalized items |
+| `items.normalized` | classic durable queue (priority) | normalizer → analysis worker | normalized items |
 | `media.analyze` | quorum queue | analysis worker → media worker | item media jobs and `account_profile` jobs |
 | `media.analyzed` | quorum queue | media worker → analysis worker | media analysis finished: OCR text, reference-media VIP links, and `repurposed_media` detections for text detection and re-scoring |
 | `evidence.capture` | quorum queue | scorer (in-process) → capture service | evidence capture jobs |

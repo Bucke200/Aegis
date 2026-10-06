@@ -68,12 +68,15 @@ def retry_delay_seconds(
 
 
 def work_queue_arguments(queue_name: str) -> dict[str, object]:
-    """Declaration arguments for a work queue, including priority."""
+    """Declaration arguments for a work queue.
 
-    arguments: dict[str, object] = dict(QUORUM)
+    ``items.normalized`` is a classic durable queue: RabbitMQ quorum queues do
+    not support message priorities. Every other work queue is a quorum queue.
+    """
+
     if queue_name in PRIORITY_QUEUES:
-        arguments["x-max-priority"] = PRIORITY_QUEUES[queue_name]
-    return arguments
+        return {"x-max-priority": PRIORITY_QUEUES[queue_name]}
+    return dict(QUORUM)
 
 
 def retry_queue_arguments(queue_name: str) -> dict[str, object]:
