@@ -97,11 +97,15 @@ def client(pg_engine) -> Iterator[TestClient]:
 
 @pytest.fixture
 def identity(pg_engine) -> dict[str, str]:
+    suffix = uuid.uuid4().hex[:8]
+    admin_email = f"admin-{suffix}@example.test"
+    analyst_email = f"analyst-{suffix}@example.test"
+    viewer_email = f"viewer-{suffix}@example.test"
     with Session(pg_engine) as session:
         service = UserService(session)
-        admin = service.create_user(email="admin@example.test", password="admin-pass", role=UserRole.ADMIN)
-        analyst = service.create_user(email="analyst@example.test", password="analyst-pass", role=UserRole.ANALYST)
-        viewer = service.create_user(email="viewer@example.test", password="viewer-pass", role=UserRole.VIEWER)
+        admin = service.create_user(email=admin_email, password="admin-pass", role=UserRole.ADMIN)
+        analyst = service.create_user(email=analyst_email, password="analyst-pass", role=UserRole.ANALYST)
+        viewer = service.create_user(email=viewer_email, password="viewer-pass", role=UserRole.VIEWER)
         vip_a = VIP(name="Vip A")
         vip_b = VIP(name="Vip B")
         session.add_all([vip_a, vip_b])
@@ -112,6 +116,9 @@ def identity(pg_engine) -> dict[str, str]:
             "admin": str(admin.id),
             "analyst": str(analyst.id),
             "viewer": str(viewer.id),
+            "admin_email": admin_email,
+            "analyst_email": analyst_email,
+            "viewer_email": viewer_email,
             "vip_a": str(vip_a.id),
             "vip_b": str(vip_b.id),
         }
@@ -149,7 +156,7 @@ def test_unauthenticated_requests_are_rejected(client: TestClient, identity: dic
 
 @DB_REQUIRED
 def test_analyst_cannot_read_an_unassigned_vip(client: TestClient, identity: dict[str, str]) -> None:
-    token = _login(client, "analyst@example.test", "analyst-pass")
+    token = _login(client, identity["analyst_email"], "analyst-pass")
 
     allowed = client.get(f"/vips/{identity['vip_a']}", headers=_auth(token))
     assert allowed.status_code == 200
@@ -167,7 +174,7 @@ def test_analyst_cannot_read_an_unassigned_vip(client: TestClient, identity: dic
 
 @DB_REQUIRED
 def test_admin_flow_and_audit_middleware(client: TestClient, identity: dict[str, str], pg_engine) -> None:
-    token = _login(client, "admin@example.test", "admin-pass")
+    token = _login(client, identity["admin_email"], "admin-pass")
     created = client.post("/vips", json={"name": "Vip Admin"}, headers=_auth(token))
     assert created.status_code == 201
 
@@ -180,7 +187,7 @@ def test_admin_flow_and_audit_middleware(client: TestClient, identity: dict[str,
 
 @DB_REQUIRED
 def test_refresh_rotation_invalidates_the_old_token(client: TestClient, identity: dict[str, str]) -> None:
-    login = client.post("/auth/login", json={"email": "admin@example.test", "password": "admin-pass"})
+    login = client.post("/auth/login", json={"email": identity["admin_email"], "password": "admin-pass"})
     assert login.status_code == 200
     original_cookie = login.cookies.get("aegis_refresh")
     assert original_cookie
@@ -196,8 +203,8 @@ def test_refresh_rotation_invalidates_the_old_token(client: TestClient, identity
 
 @DB_REQUIRED
 def test_reveal_permission_is_admin_only_and_never_for_viewers(client: TestClient, identity: dict[str, str]) -> None:
-    admin = _login(client, "admin@example.test", "admin-pass")
-    analyst = _login(client, "analyst@example.test", "analyst-pass")
+    admin = _login(client, identity["admin_email"], "admin-pass")
+    analyst = _login(client, identity["analyst_email"], "analyst-pass")
 
     denied = client.put(
         f"/users/{identity['analyst']}/vips/{identity['vip_a']}/reveal",

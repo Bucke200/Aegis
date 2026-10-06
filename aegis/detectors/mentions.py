@@ -206,15 +206,19 @@ class MentionResolver:
 
     def __init__(self, configs: list[VipConfig]) -> None:
         self.configs = {config.vip_id: config for config in configs}
-        self.automaton = ahocorasick.Automaton()
+        self.automaton: ahocorasick.Automaton | None = None
         entries: dict[str, list[tuple[uuid.UUID, VipAliasConfig]]] = {}
         for config in configs:
             for alias in config.aliases:
                 for form in _alias_forms(alias.alias):
                     entries.setdefault(form, []).append((config.vip_id, alias))
+        if not entries:
+            return
+        automaton = ahocorasick.Automaton()
         for form, values in entries.items():
-            self.automaton.add_word(form, values)
-        self.automaton.make_automaton()
+            automaton.add_word(form, values)
+        automaton.make_automaton()
+        self.automaton = automaton
 
     def _source(self, alias: VipAliasConfig) -> MatchSource:
         return SOURCE_BY_KIND.get(alias.kind, MatchSource.ALIAS)
@@ -253,6 +257,8 @@ class MentionResolver:
         text: str,
         best: dict[uuid.UUID, VipMatch],
     ) -> None:
+        if self.automaton is None:
+            return
         for token in tokens:
             cleaned = token.lstrip("@#").strip()
             for form, base in _text_forms(cleaned):
@@ -266,10 +272,11 @@ class MentionResolver:
         hashtags: list[str] | None = None,
     ) -> list[VipMatch]:
         best: dict[uuid.UUID, VipMatch] = {}
-        for form, base in _text_forms(text):
-            for _, values in self.automaton.iter(form):
-                for vip_id, alias in values:
-                    self._consider(best, self.configs[vip_id], alias, base, text)
+        if self.automaton is not None:
+            for form, base in _text_forms(text):
+                for _, values in self.automaton.iter(form):
+                    for vip_id, alias in values:
+                        self._consider(best, self.configs[vip_id], alias, base, text)
         self._exact_token_matches(mentions or [], MatchSource.HANDLE, text, best)
         self._exact_token_matches(hashtags or [], MatchSource.HASHTAG, text, best)
         return sorted(best.values(), key=lambda match: str(match.vip_id))
@@ -306,6 +313,7 @@ def load_vip_configs(session: Session) -> list[VipConfig]:
             context_keywords=frozenset(keywords[vip_id]),
         )
         for vip_id in vip_ids
+        if aliases[vip_id]
     ]
 
 
