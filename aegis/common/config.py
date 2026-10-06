@@ -57,6 +57,10 @@ class Settings(BaseSettings):
     llm_api_key: SecretStr = SecretStr("")
     llm_daily_token_budget: int = 1_000_000
 
+    stage1_threshold: float = 0.35
+    toxicity_enabled: bool = True
+    toxicity_model: str = "unitary/multilingual-toxic-xlm-roberta"
+
     telegram_api_id: int | None = None
     telegram_api_hash: SecretStr | None = None
     telegram_session: str = ""
