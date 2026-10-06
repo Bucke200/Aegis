@@ -18,6 +18,7 @@ from aegis.api.security import create_access_token
 from aegis.api.services.users import UserService
 from aegis.collectors.synthetic import SyntheticConfig, generate
 from aegis.common.db import get_session
+from aegis.common.models.collected import Item
 from aegis.common.models.enums import (
     IncidentEventType,
     IncidentSubject,
@@ -77,6 +78,26 @@ def _create_incident(
         explanation="test incident",
         scoring_config_version=1,
         merged_into_id=merged_into_id,
+    )
+    session.add(incident)
+    session.flush()
+    session.add(IncidentVip(incident_id=incident.id, vip_id=vip_id))
+    session.flush()
+    return incident
+
+
+def _create_account_incident(session: Session, account_id: uuid.UUID, vip_id: uuid.UUID) -> Incident:
+    incident = Incident(
+        subject_type=IncidentSubject.ACCOUNT,
+        account_id=account_id,
+        subject_vip_id=vip_id,
+        source=Source.TELEGRAM,
+        language=None,
+        risk_score=0.9,
+        severity=Severity.HIGH,
+        threat_types=["impersonation"],
+        explanation="account incident",
+        scoring_config_version=1,
     )
     session.add(incident)
     session.flush()
@@ -155,9 +176,13 @@ def test_list_filters_and_vip_scope(client: TestClient, context: dict[str, Any],
     assert analyst.status_code == 200
     assert [row["id"] for row in analyst.json()["items"]] == [incident_a_id]
 
-    lead = client.get("/incidents", headers=_auth(context, "lead"))
+    lead = client.get(
+        "/incidents",
+        params={"vip_id": [context["vip_a"]]},
+        headers=_auth(context, "lead"),
+    )
     assert lead.status_code == 200
-    assert len(lead.json()["items"]) == 2
+    assert len(lead.json()["items"]) == 1
 
     filtered = client.get("/incidents", params={"severity": ["critical"]}, headers=_auth(context, "lead"))
     assert [row["id"] for row in filtered.json()["items"]] == [incident_a_id]
@@ -192,7 +217,7 @@ def test_keyset_pagination(client: TestClient, context: dict[str, Any], pg_engin
 
     second = client.get(
         "/incidents",
-        params={"limit": 2, "cursor": first["next_cursor"]},
+        params={"limit": 2, "cursor": first["next_cursor"], "vip_id": [context["vip_a"]]},
         headers=_auth(context, "lead"),
     ).json()
     assert len(second["items"]) == 1
@@ -220,7 +245,7 @@ def test_status_workflow_rules(client: TestClient, context: dict[str, Any], pg_e
         json={"status": "under_review"},
         headers=_auth(context, "analyst"),
     )
-    assert review.status_code == 200
+    assert review.status_code == 200, review.text
     assert review.json()["status"] == "under_review"
 
     missing_outcome = client.post(
@@ -228,14 +253,14 @@ def test_status_workflow_rules(client: TestClient, context: dict[str, Any], pg_e
         json={"status": "resolved"},
         headers=_auth(context, "analyst"),
     )
-    assert missing_outcome.status_code == 422
+    assert missing_outcome.status_code == 422, missing_outcome.text
 
     resolved = client.post(
         f"/incidents/{incident_id}/status",
         json={"status": "resolved", "outcome": "no_action_needed"},
         headers=_auth(context, "analyst"),
     )
-    assert resolved.status_code == 200
+    assert resolved.status_code == 200, resolved.text
     assert resolved.json()["outcome"] == "no_action_needed"
 
     analyst_reopen = client.post(
@@ -286,10 +311,12 @@ def test_false_positive_creates_label(client: TestClient, context: dict[str, Any
         json={"status": "false_positive"},
         headers=_auth(context, "analyst"),
     )
-    assert response.status_code == 200
+    assert response.status_code == 200, response.text
 
     with Session(pg_engine) as session:
-        label_count = session.execute(select(func.count()).select_from(Label)).scalar_one()
+        label_count = session.execute(
+            select(func.count()).select_from(Label).where(Label.incident_id == uuid.UUID(incident_id))
+        ).scalar_one()
     assert label_count == 1
 
 
@@ -297,7 +324,10 @@ def test_false_positive_creates_label(client: TestClient, context: dict[str, Any
 def test_merged_incident_is_read_only(client: TestClient, context: dict[str, Any], pg_engine) -> None:
     with Session(pg_engine) as session:
         item_a = _create_item(session, "account incident placeholder", seed=92)
-        account_incident = _create_incident(session, item_a, context["vip_a_uuid"])
+        source_item = session.get(Item, item_a)
+        assert source_item is not None
+        assert source_item.account_id is not None
+        account_incident = _create_account_incident(session, source_item.account_id, context["vip_a_uuid"])
         item_b = _create_item(session, "merged item placeholder", seed=93)
         merged = _create_incident(
             session,

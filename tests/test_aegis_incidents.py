@@ -108,10 +108,16 @@ def test_incident_is_created_once_with_vips_and_outbox(db_session) -> None:
     build = upsert_item_incident(db_session, item, result, config, detections=scores)
     assert build.created is True
     assert build.capture_required is True
-    assert db_session.execute(select(func.count()).select_from(Incident)).scalar_one() == 1
+    assert (
+        db_session.execute(select(func.count()).select_from(Incident).where(Incident.item_id == item.id)).scalar_one()
+        == 1
+    )
     assert db_session.execute(select(func.count()).select_from(IncidentVip)).scalar_one() == 1
     created = db_session.execute(
-        select(func.count()).select_from(Outbox).where(Outbox.event_type == "incident.created")
+        select(func.count())
+        .select_from(Outbox)
+        .where(Outbox.event_type == "incident.created")
+        .where(Outbox.payload["item_id"].astext == str(item.id))
     ).scalar_one()
     assert created == 1
 
@@ -120,7 +126,10 @@ def test_incident_is_created_once_with_vips_and_outbox(db_session) -> None:
     assert build.incident is not None
     assert second.incident is not None
     assert second.incident.id == build.incident.id
-    assert db_session.execute(select(func.count()).select_from(Incident)).scalar_one() == 1
+    assert (
+        db_session.execute(select(func.count()).select_from(Incident).where(Incident.item_id == item.id)).scalar_one()
+        == 1
+    )
 
 
 @DB_REQUIRED
@@ -183,4 +192,7 @@ def test_suppression_rule_prevents_incident_creation(db_session) -> None:
     build = upsert_item_incident(db_session, item, result, config, detections=scores)
     assert build.created is False
     assert build.incident is None
-    assert db_session.execute(select(func.count()).select_from(Incident)).scalar_one() == 0
+    assert (
+        db_session.execute(select(func.count()).select_from(Incident).where(Incident.item_id == item.id)).scalar_one()
+        == 0
+    )

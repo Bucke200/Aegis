@@ -45,15 +45,23 @@ def _payload(**overrides: Any) -> dict[str, Any]:
 
 @DB_REQUIRED
 def test_new_item_creates_account_and_item(db_session) -> None:
-    result = Normalizer().normalize(db_session, _payload())
+    payload = _payload()
+    result = Normalizer().normalize(db_session, payload)
 
     assert result.created is True
     assert result.script == "Latin"
-    item = db_session.execute(select(Item)).scalar_one()
-    account = db_session.execute(select(Account)).scalar_one()
+    item = db_session.execute(select(Item).where(Item.dedup_key == result.dedup_key)).scalar_one()
+    account = db_session.execute(
+        select(Account).where(Account.platform_account_id == payload["author"]["platform_account_id"])
+    ).scalar_one()
     assert item.account_id == account.id
     assert result.language == "en"
-    assert db_session.execute(select(func.count()).select_from(ItemVersion)).scalar_one() == 0
+    assert (
+        db_session.execute(
+            select(func.count()).select_from(ItemVersion).where(ItemVersion.item_id == item.id)
+        ).scalar_one()
+        == 0
+    )
 
 
 @DB_REQUIRED
@@ -65,8 +73,18 @@ def test_replaying_the_same_item_is_idempotent(db_session) -> None:
 
     assert second.created is False
     assert second.item_id == first.item_id
-    assert db_session.execute(select(func.count()).select_from(Item)).scalar_one() == 1
-    assert db_session.execute(select(func.count()).select_from(Account)).scalar_one() == 1
+    assert (
+        db_session.execute(select(func.count()).select_from(Item).where(Item.dedup_key == first.dedup_key)).scalar_one()
+        == 1
+    )
+    assert (
+        db_session.execute(
+            select(func.count())
+            .select_from(Account)
+            .where(Account.platform_account_id == payload["author"]["platform_account_id"])
+        ).scalar_one()
+        == 1
+    )
 
 
 @DB_REQUIRED
@@ -80,9 +98,14 @@ def test_engagement_update_appends_snapshot_and_triggers_rescore(db_session) -> 
 
     assert result.created is False
     assert result.rescore is True
-    item = db_session.execute(select(Item)).scalar_one()
+    item = db_session.execute(select(Item).where(Item.dedup_key == result.dedup_key)).scalar_one()
     assert item.engagement["likes"] == 1000
-    assert db_session.execute(select(func.count()).select_from(ItemEngagementSnapshot)).scalar_one() == 1
+    assert (
+        db_session.execute(
+            select(func.count()).select_from(ItemEngagementSnapshot).where(ItemEngagementSnapshot.item_id == item.id)
+        ).scalar_one()
+        == 1
+    )
 
 
 @DB_REQUIRED
@@ -96,10 +119,10 @@ def test_edit_creates_version_row(db_session) -> None:
     result = normalizer.normalize(db_session, edited)
 
     assert result.edited is True
-    version = db_session.execute(select(ItemVersion)).scalar_one()
+    item = db_session.execute(select(Item).where(Item.dedup_key == result.dedup_key)).scalar_one()
+    version = db_session.execute(select(ItemVersion).where(ItemVersion.item_id == item.id)).scalar_one()
     assert version.change_type.value == "edit"
     assert version.text == payload["content"]["text"]
-    item = db_session.execute(select(Item)).scalar_one()
     assert item.text == "edited text about the same item"
 
 

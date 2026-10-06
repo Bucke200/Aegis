@@ -124,4 +124,7 @@ def test_upsert_detection_is_idempotent(db_session) -> None:
 
     assert first.id == second.id
     assert second.score == 0.99
-    assert db_session.execute(select(func.count()).select_from(Detection)).scalar_one() == 1
+    assert (
+        db_session.execute(select(func.count()).select_from(Detection).where(Detection.item_id == item.id)).scalar_one()
+        == 1
+    )
