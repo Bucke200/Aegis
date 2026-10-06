@@ -56,6 +56,9 @@ class Settings(BaseSettings):
     llm_model: str = ""
     llm_api_key: SecretStr = SecretStr("")
     llm_daily_token_budget: int = 1_000_000
+    llm_base_url: str = "https://api.openai.com/v1"
+    llm_timeout_seconds: float = 30.0
+    llm_reserved_tokens_per_call: int = 1500
 
     stage1_threshold: float = 0.35
     toxicity_enabled: bool = True
