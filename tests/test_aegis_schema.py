@@ -94,7 +94,7 @@ def test_schema_objects_exist(pg_engine: Engine) -> None:
                 "WHERE table_schema = 'public' AND table_name <> 'alembic_version'"
             )
         ).scalar_one()
-        assert table_count == 39
+        assert table_count == 40
 
         index_names = {
             row[0] for row in connection.execute(text("SELECT indexname FROM pg_indexes WHERE schemaname = 'public'"))

@@ -17,9 +17,11 @@ from sqlalchemy.orm import Session
 
 from aegis.api import schemas
 from aegis.api.main import app
+from aegis.api.security import create_access_token
 from aegis.api.services.fingerprints import FingerprintService
+from aegis.api.services.users import UserService
 from aegis.common.db import get_session
-from aegis.common.models.enums import FingerprintKind, Sensitivity
+from aegis.common.models.enums import FingerprintKind, Sensitivity, UserRole
 from aegis.common.models.ops import AuditLog
 from aegis.common.models.reference import SensitiveFingerprint
 from aegis.common.storage import StoredObject, get_object_storage, sha256_hex
@@ -86,8 +88,19 @@ def client(pg_engine, fake_storage: FakeStorage) -> Iterator[TestClient]:
 
     app.dependency_overrides[get_session] = override_session
     app.dependency_overrides[get_object_storage] = lambda: fake_storage
+
+    with Session(pg_engine) as setup:
+        admin = UserService(setup).create_user(
+            email=f"admin-{uuid.uuid4().hex[:8]}@example.test",
+            password="admin-pass",
+            role=UserRole.ADMIN,
+        )
+        setup.commit()
+        token = create_access_token(admin.id, admin.role.value)
+
     try:
         with TestClient(app) as test_client:
+            test_client.headers["Authorization"] = f"Bearer {token}"
             yield test_client
     finally:
         app.dependency_overrides.clear()

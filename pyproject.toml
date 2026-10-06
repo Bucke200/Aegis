@@ -90,6 +90,7 @@ ignore = ["E501"]
 
 [tool.ruff.lint.flake8-bugbear]
 extend-immutable-calls = [
+    "aegis.api.dependencies.require_role",
     "fastapi.Body",
     "fastapi.Depends",
     "fastapi.File",

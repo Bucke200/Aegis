@@ -182,6 +182,16 @@ class UserVipScope(Base):
     can_reveal_sensitive: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 
 
+class RefreshToken(Base, UUIDPrimaryKeyMixin, CreatedAtMixin):
+    __tablename__ = "refresh_tokens"
+    __table_args__ = (Index("ix_refresh_tokens_user_id", "user_id"),)
+
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    jti: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False, unique=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
 class AuditLog(Base, UUIDPrimaryKeyMixin):
     __tablename__ = "audit_log"
     __table_args__ = (Index("ix_audit_log_at", "at"),)

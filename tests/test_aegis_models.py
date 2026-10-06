@@ -44,6 +44,7 @@ EXPECTED_TABLES = {
     "official_accounts",
     "outbox",
     "reference_media",
+    "refresh_tokens",
     "saved_searches",
     "scoring_configs",
     "sensitive_fingerprints",

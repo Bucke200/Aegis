@@ -19,6 +19,10 @@ from aegis.common.config import get_settings
 
 TEST_DATABASE_URL_ENV = "AEGIS_TEST_DATABASE_URL"
 
+os.environ.setdefault("AEGIS_JWT_SECRET", "aegis-test-secret-" + "x" * 20)
+os.environ.setdefault("AEGIS_FINGERPRINT_SALT", "aegis-test-fingerprint-salt")
+get_settings.cache_clear()
+
 _TEST_DATABASE_URL = os.environ.get(TEST_DATABASE_URL_ENV)
 if _TEST_DATABASE_URL:
     os.environ["AEGIS_DATABASE_URL"] = _TEST_DATABASE_URL

@@ -45,6 +45,9 @@ class Settings(BaseSettings):
     jwt_algorithm: str = "HS256"
     access_token_minutes: int = 15
     refresh_token_days: int = 30
+    refresh_cookie_name: str = "aegis_refresh"
+    refresh_cookie_secure: bool = False
+    rate_limit_per_minute: int = 120
 
     app_encryption_key: SecretStr = SecretStr("change-me")
 
