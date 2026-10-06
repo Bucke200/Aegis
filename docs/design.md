@@ -39,9 +39,9 @@ PostgreSQL is the single system of record. It also handles full-text search (FTS
   - `.env.example`, `.gitignore`, `Makefile`, `README.md`, pytest config, and `.dockerignore`
 - **Dependency pinning:** `pyproject.toml` declares compatible ranges (not exact pins); `uv.lock` provides reproducibility, and CI and the Docker build use `uv sync --frozen`. This avoids the exact-pin trap that excluded a Python version from resolution.
 - **Dependencies:** the target set is added per image role, so each image stays as small as its role allows. Heavy ML and browser dependencies never enter the `api` image.
-  - **`core` (all roles):** fastapi, uvicorn, pydantic, pydantic-settings, sqlalchemy, alembic, psycopg[binary,pool], pgvector, aio-pika, minio, structlog, prometheus-client, tenacity, pybreaker, httpx (GitHub API, manual URL fetch, LLM calls), pyjwt, argon2-cffi, pyotp, pyahocorasick, datasketch, networkx, python-multipart, reportlab
+  - **`core` (all roles):** fastapi, uvicorn, pydantic, pydantic-settings, sqlalchemy, alembic, psycopg[binary,pool], pgvector, aio-pika, minio, structlog, prometheus-client, tenacity, pybreaker, httpx (GitHub API, manual URL fetch, LLM calls), pyjwt, argon2-cffi, pyotp, pyahocorasick, datasketch, networkx, lingua-language-detector (language/script ID in the normalizer), python-multipart, reportlab
   - **`collectors` (collector and worker roles):** telethon
-  - **`analysis` (analysis worker):** torch (CPU), transformers, scikit-learn (isotonic calibration), lingua-language-detector (language/script ID), confusable-homoglyphs; the multilingual toxicity model weights are vendored or cached (see Media Analysis / model weights)
+  - **`analysis` (analysis worker):** torch (CPU), transformers, scikit-learn (isotonic calibration), confusable-homoglyphs; the multilingual toxicity model weights are vendored or cached (see Media Analysis / model weights)
   - **`media` (media worker):** imagehash, open-clip-torch, paddleocr, sentence-transformers; plus the `ffmpeg` system package
   - **`capture` (capture service):** playwright
   - **`dev`:** pytest, pytest-asyncio, ruff, mypy, coverage, respx

@@ -38,6 +38,10 @@ REDRIVEN_HEADER = "x-aegis-redriven"
 Handler = Callable[[dict[str, Any]], Awaitable[None]]
 
 
+class PermanentMessageError(Exception):
+    """A handler failure that goes straight to the DLQ without retries."""
+
+
 @dataclass(frozen=True)
 class RetryPolicy:
     """Bounded retries with exponential backoff before the DLQ."""
@@ -199,8 +203,10 @@ class QueueConsumer:
     async def _on_message(self, message: AbstractIncomingMessage) -> None:
         try:
             await self.handler(decode_message(message))
+        except PermanentMessageError as error:
+            await self._handle_failure(message, error, permanent=True)
         except Exception as error:
-            await self._handle_failure(message, error)
+            await self._handle_failure(message, error, permanent=False)
         else:
             await message.ack()
 
@@ -208,6 +214,8 @@ class QueueConsumer:
         self,
         message: AbstractIncomingMessage,
         error: Exception,
+        *,
+        permanent: bool = False,
     ) -> None:
         attempt = attempts_of(message) + 1
         headers = {**dict(message.headers or {}), ATTEMPTS_HEADER: attempt}
@@ -215,9 +223,10 @@ class QueueConsumer:
             "message_failed",
             queue=self.queue_name,
             attempt=attempt,
+            permanent=permanent,
             error=str(error),
         )
-        if self.retry_policy.exhausted(attempt):
+        if permanent or self.retry_policy.exhausted(attempt):
             await self.producer.publish_raw(
                 dead_letter_queue(self.queue_name),
                 message.body,

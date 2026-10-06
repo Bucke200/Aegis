@@ -13,6 +13,7 @@ dependencies = [
     { name = "datasketch" },
     { name = "fastapi" },
     { name = "httpx" },
+    { name = "lingua-language-detector" },
     { name = "minio" },
     { name = "networkx" },
     { name = "pgvector" },
@@ -35,7 +36,6 @@ dependencies = [
 [package.dev-dependencies]
 analysis = [
     { name = "confusable-homoglyphs" },
-    { name = "lingua-language-detector" },
     { name = "scikit-learn" },
     { name = "torch" },
     { name = "transformers" },
@@ -70,6 +70,7 @@ requires-dist = [
     { name = "datasketch", specifier = ">=1.6,<2" },
     { name = "fastapi", specifier = ">=0.115,<1" },
     { name = "httpx", specifier = ">=0.28,<1" },
+    { name = "lingua-language-detector", specifier = ">=2.1,<3" },
     { name = "minio", specifier = ">=7.2,<8" },
     { name = "networkx", specifier = ">=3.4,<4" },
     { name = "pgvector", specifier = ">=0.3.6,<1" },
@@ -92,7 +93,6 @@ requires-dist = [
 [package.metadata.requires-dev]
 analysis = [
     { name = "confusable-homoglyphs", specifier = ">=3.3,<4" },
-    { name = "lingua-language-detector", specifier = ">=2.1,<3" },
     { name = "scikit-learn", specifier = ">=1.6,<2" },
     { name = "torch", specifier = ">=2.5,<3" },
     { name = "transformers", specifier = ">=4.47,<5" },
