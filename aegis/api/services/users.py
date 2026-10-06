@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import uuid
+from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -114,3 +115,72 @@ class UserService:
         self, user_id: uuid.UUID, vip_id: uuid.UUID, *, actor_id: uuid.UUID | None = None
     ) -> UserVipScope:
         return self.set_scope(user_id, vip_id, can_reveal_sensitive=False, actor_id=actor_id)
+
+    def update_user(
+        self,
+        user_id: uuid.UUID,
+        *,
+        display_name: str | None = None,
+        role: UserRole | None = None,
+        is_active: bool | None = None,
+        actor_id: uuid.UUID | None = None,
+    ) -> User:
+        user = self.get_user(user_id)
+        changes: dict[str, Any] = {}
+        if display_name is not None and display_name != user.display_name:
+            changes["display_name"] = {"from": user.display_name, "to": display_name}
+            user.display_name = display_name
+        if role is not None and role != user.role:
+            changes["role"] = {"from": user.role.value, "to": role.value}
+            user.role = role
+            if role is UserRole.VIEWER:
+                self._clear_reveal_grants(user.id)
+        if is_active is not None and is_active != user.is_active:
+            changes["is_active"] = {"from": user.is_active, "to": is_active}
+            user.is_active = is_active
+        if changes:
+            record(
+                self.session,
+                action="user.updated",
+                target=str(user.id),
+                details=changes,
+                actor_id=actor_id,
+            )
+            self.session.flush()
+        return user
+
+    def reset_password(self, user_id: uuid.UUID, password: str) -> User:
+        user = self.get_user(user_id)
+        user.password_hash = hash_password(password)
+        record(
+            self.session,
+            action="user.password_reset",
+            target=str(user.id),
+            details={},
+        )
+        self.session.flush()
+        return user
+
+    def remove_scope(self, user_id: uuid.UUID, vip_id: uuid.UUID, *, actor_id: uuid.UUID | None = None) -> None:
+        scope = self.session.get(UserVipScope, (user_id, vip_id))
+        if scope is None:
+            raise UserNotFoundError("scope not found")
+        self.session.delete(scope)
+        record(
+            self.session,
+            action="user.scope_removed",
+            target=str(user_id),
+            details={"vip_id": str(vip_id)},
+            actor_id=actor_id,
+        )
+
+    def _clear_reveal_grants(self, user_id: uuid.UUID) -> None:
+        scopes = self.session.execute(select(UserVipScope).where(UserVipScope.user_id == user_id)).scalars()
+        for scope in scopes:
+            scope.can_reveal_sensitive = False
+
+    def get_user_by_email(self, email: str) -> User:
+        user = self.session.execute(select(User).where(User.email == email.strip().lower())).scalar_one_or_none()
+        if user is None:
+            raise UserNotFoundError(f"user {email} not found")
+        return user

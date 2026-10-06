@@ -20,6 +20,7 @@ from aegis.common.models.enums import (
     Sensitivity,
     Severity,
     Source,
+    UserRole,
 )
 
 
@@ -252,3 +253,40 @@ class BulkStatusRequest(BaseModel):
 class BulkStatusResponse(BaseModel):
     applied: int
     errors: list[str]
+
+
+class UserCreate(BaseModel):
+    email: str
+    password: str = Field(min_length=8)
+    role: UserRole
+    display_name: str | None = None
+
+
+class UserUpdate(BaseModel):
+    display_name: str | None = None
+    role: UserRole | None = None
+    is_active: bool | None = None
+
+
+class UserRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    email: str
+    display_name: str | None
+    role: UserRole
+    mfa_enabled: bool
+    is_active: bool
+    created_at: datetime
+
+
+class ScopeAssignRequest(BaseModel):
+    can_reveal_sensitive: bool = False
+
+
+class UserScopeRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    user_id: uuid.UUID
+    vip_id: uuid.UUID
+    can_reveal_sensitive: bool
