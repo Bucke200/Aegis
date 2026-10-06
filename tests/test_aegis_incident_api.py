@@ -391,5 +391,7 @@ def test_assign_note_and_bulk(client: TestClient, context: dict[str, Any], pg_en
     assert len(detail["notes"]) == 1
 
     with Session(pg_engine) as session:
-        note_rows = session.execute(select(func.count()).select_from(IncidentNote)).scalar_one()
+        note_rows = session.execute(
+            select(func.count()).select_from(IncidentNote).where(IncidentNote.incident_id == uuid.UUID(incident_ids[0]))
+        ).scalar_one()
     assert note_rows == 1

@@ -42,4 +42,10 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    op.execute(
+        "UPDATE incidents SET scoring_config_version = NULL WHERE scoring_config_version = 1"
+    )
+    op.execute(
+        "UPDATE vips SET scoring_config_version = NULL WHERE scoring_config_version = 1"
+    )
     op.execute("DELETE FROM scoring_configs WHERE version = 1")

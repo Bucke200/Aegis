@@ -245,7 +245,7 @@ class IncidentService:
         if target not in ALLOWED_TRANSITIONS.get(current, set()):
             raise InvalidTransitionError(f"cannot move from {current.value} to {target.value}")
 
-        if target in REOPEN_FROM:
+        if current in REOPEN_FROM:
             if user.role not in REOPEN_ROLES:
                 raise InvalidTransitionError("only a Lead or Admin can reopen an incident")
             if not reason:

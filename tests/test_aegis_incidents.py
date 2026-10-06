@@ -112,7 +112,12 @@ def test_incident_is_created_once_with_vips_and_outbox(db_session) -> None:
         db_session.execute(select(func.count()).select_from(Incident).where(Incident.item_id == item.id)).scalar_one()
         == 1
     )
-    assert db_session.execute(select(func.count()).select_from(IncidentVip)).scalar_one() == 1
+    assert (
+        db_session.execute(
+            select(func.count()).select_from(IncidentVip).where(IncidentVip.incident_id == build.incident.id)
+        ).scalar_one()
+        == 1
+    )
     created = db_session.execute(
         select(func.count())
         .select_from(Outbox)
