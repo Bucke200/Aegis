@@ -21,9 +21,14 @@ TEST_DATABASE_URL_ENV = "AEGIS_TEST_DATABASE_URL"
 
 os.environ.setdefault("AEGIS_JWT_SECRET", "aegis-test-secret-" + "x" * 20)
 os.environ.setdefault("AEGIS_FINGERPRINT_SALT", "aegis-test-fingerprint-salt")
+os.environ.setdefault("AEGIS_EVENT_CONSUMER_ENABLED", "false")
 get_settings.cache_clear()
 
 _TEST_DATABASE_URL = os.environ.get(TEST_DATABASE_URL_ENV)
+_TEST_RABBITMQ_URL = os.environ.get("AEGIS_TEST_RABBITMQ_URL")
+if _TEST_RABBITMQ_URL:
+    os.environ["AEGIS_RABBITMQ_URL"] = _TEST_RABBITMQ_URL
+    get_settings.cache_clear()
 if _TEST_DATABASE_URL:
     os.environ["AEGIS_DATABASE_URL"] = _TEST_DATABASE_URL
     get_settings.cache_clear()

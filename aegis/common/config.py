@@ -48,6 +48,7 @@ class Settings(BaseSettings):
     refresh_cookie_name: str = "aegis_refresh"
     refresh_cookie_secure: bool = False
     rate_limit_per_minute: int = 120
+    event_consumer_enabled: bool = True
 
     app_encryption_key: SecretStr = SecretStr("change-me")
 

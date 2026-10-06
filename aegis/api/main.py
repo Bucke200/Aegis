@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+
 import uvicorn
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
@@ -24,6 +27,13 @@ from aegis.api.services.users import (
     UserNotFoundError,
 )
 from aegis.api.services.vips import DuplicateVipConfigError, VipNotFoundError
+from aegis.api.websocket import (
+    ConnectionManager,
+    websocket_consumer_lifespan,
+)
+from aegis.api.websocket import (
+    router as websocket_router,
+)
 from aegis.common.config import get_settings
 from aegis.common.fingerprints import InvalidFingerprintError
 from aegis.common.health import router as health_router
@@ -36,9 +46,19 @@ def create_app() -> FastAPI:
 
     settings = get_settings()
     configure_logging()
-    app = FastAPI(title="Aegis", version=__version__)
+    manager = ConnectionManager()
+
+    @asynccontextmanager
+    async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+        consumer_enabled = bool(getattr(app.state, "event_consumer_enabled", False))
+        async with websocket_consumer_lifespan(manager, consumer_enabled):
+            yield
+
+    app = FastAPI(title="Aegis", version=__version__, lifespan=lifespan)
     app.state.settings = settings
     app.state.rate_limiter = RateLimiter(settings.rate_limit_per_minute)
+    app.state.connection_manager = manager
+    app.state.event_consumer_enabled = settings.event_consumer_enabled
 
     app.add_middleware(AuditMiddleware)
     app.add_middleware(RateLimitMiddleware)
@@ -48,6 +68,7 @@ def create_app() -> FastAPI:
     app.include_router(users_router)
     app.include_router(vips_router)
     app.include_router(incidents_router)
+    app.include_router(websocket_router)
 
     @app.exception_handler(VipNotFoundError)
     async def _vip_not_found(request: Request, exc: VipNotFoundError) -> JSONResponse:
