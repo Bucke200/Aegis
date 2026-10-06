@@ -174,11 +174,8 @@ def test_end_to_end_incident_push_is_vip_scoped(client: TestClient, context: dic
 
     async def publish_event(vip_ids: list[str], incident_id: str) -> None:
         from aegis.common.messaging import Producer, broker_channel
-        from aegis.common.topology import (
-            EVENTS_INCIDENTS,
-            INCIDENT_CREATED,
-            declare_topology,
-        )
+        from aegis.common.outbox import INCIDENT_CREATED
+        from aegis.common.topology import EVENTS_INCIDENTS, declare_topology
 
         async with broker_channel() as channel:
             await declare_topology(channel)
