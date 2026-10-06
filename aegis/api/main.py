@@ -9,8 +9,15 @@ from fastapi.responses import JSONResponse
 from aegis import __version__
 from aegis.api.middleware import AuditMiddleware, RateLimiter, RateLimitMiddleware
 from aegis.api.routers.auth import router as auth_router
+from aegis.api.routers.incidents import router as incidents_router
 from aegis.api.routers.users import router as users_router
 from aegis.api.routers.vips import router as vips_router
+from aegis.api.services.incidents import (
+    IncidentNotFoundError,
+    InvalidTransitionError,
+    MergeReadOnlyError,
+    OutcomeRequiredError,
+)
 from aegis.api.services.users import (
     DuplicateUserError,
     RevealPermissionError,
@@ -40,6 +47,7 @@ def create_app() -> FastAPI:
     app.include_router(auth_router)
     app.include_router(users_router)
     app.include_router(vips_router)
+    app.include_router(incidents_router)
 
     @app.exception_handler(VipNotFoundError)
     async def _vip_not_found(request: Request, exc: VipNotFoundError) -> JSONResponse:
@@ -60,6 +68,22 @@ def create_app() -> FastAPI:
     @app.exception_handler(RevealPermissionError)
     async def _reveal_error(request: Request, exc: RevealPermissionError) -> JSONResponse:
         return JSONResponse(status_code=400, content={"detail": str(exc)})
+
+    @app.exception_handler(IncidentNotFoundError)
+    async def _incident_not_found(request: Request, exc: IncidentNotFoundError) -> JSONResponse:
+        return JSONResponse(status_code=404, content={"detail": str(exc)})
+
+    @app.exception_handler(InvalidTransitionError)
+    async def _invalid_transition(request: Request, exc: InvalidTransitionError) -> JSONResponse:
+        return JSONResponse(status_code=409, content={"detail": str(exc)})
+
+    @app.exception_handler(MergeReadOnlyError)
+    async def _merge_read_only(request: Request, exc: MergeReadOnlyError) -> JSONResponse:
+        return JSONResponse(status_code=409, content={"detail": str(exc)})
+
+    @app.exception_handler(OutcomeRequiredError)
+    async def _outcome_required(request: Request, exc: OutcomeRequiredError) -> JSONResponse:
+        return JSONResponse(status_code=422, content={"detail": str(exc)})
 
     @app.exception_handler(InvalidImageError)
     async def _invalid_image(request: Request, exc: InvalidImageError) -> JSONResponse:

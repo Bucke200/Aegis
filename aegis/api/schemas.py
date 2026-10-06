@@ -4,14 +4,21 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
 from aegis.common.models.enums import (
     AliasKind,
     FingerprintKind,
+    IncidentEventType,
+    IncidentOutcome,
+    IncidentStatus,
+    IncidentSubject,
+    InputVariant,
     ReferenceMediaKind,
     Sensitivity,
+    Severity,
     Source,
 )
 
@@ -115,3 +122,133 @@ class FingerprintRead(BaseModel):
     kind: FingerprintKind
     salt_id: str
     created_at: datetime
+
+
+class IncidentRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    subject_type: IncidentSubject
+    item_id: uuid.UUID | None
+    account_id: uuid.UUID | None
+    source: Source
+    language: str | None
+    risk_score: float
+    severity: Severity
+    threat_types: list[str]
+    explanation: str | None
+    status: IncidentStatus
+    assignee_id: uuid.UUID | None
+    campaign_id: uuid.UUID | None
+    outcome: IncidentOutcome | None
+    below_threshold: bool
+    merged_into_id: uuid.UUID | None
+    created_at: datetime
+    updated_at: datetime
+
+
+class DetectionRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    detector: str
+    model_version: str
+    input_variant: InputVariant
+    score: float
+    label: str | None
+    spans: list[Any]
+    details: dict[str, Any]
+    created_at: datetime
+
+
+class IncidentEventRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    event_type: IncidentEventType
+    actor_id: uuid.UUID | None
+    from_value: dict[str, Any] | None
+    to_value: dict[str, Any] | None
+    reason: str | None
+    at: datetime
+
+
+class IncidentNoteRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    author_id: uuid.UUID | None
+    body: str
+    created_at: datetime
+
+
+class EvidenceArtifactRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    kind: str
+    object_key: str
+    sha256: str
+    size: int
+    captured_at: datetime
+
+
+class AccountSummary(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    source: Source
+    platform_account_id: str
+    handle: str | None
+    display_name: str | None
+
+
+class CampaignSummary(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    status: str
+    coordination_score: float | None
+    account_count: int
+    item_count: int
+
+
+class IncidentDetailResponse(BaseModel):
+    incident: IncidentRead
+    detections: list[DetectionRead]
+    account: AccountSummary | None
+    campaign: CampaignSummary | None
+    history: list[IncidentEventRead]
+    notes: list[IncidentNoteRead]
+    evidence: list[EvidenceArtifactRead]
+
+
+class IncidentListResponse(BaseModel):
+    items: list[IncidentRead]
+    next_cursor: str | None
+
+
+class StatusChangeRequest(BaseModel):
+    status: IncidentStatus
+    reason: str | None = None
+    outcome: IncidentOutcome | None = None
+
+
+class AssignRequest(BaseModel):
+    assignee_id: uuid.UUID
+
+
+class NoteCreate(BaseModel):
+    body: str = Field(min_length=1)
+
+
+class BulkStatusRequest(BaseModel):
+    incident_ids: list[uuid.UUID] = Field(min_length=1)
+    status: IncidentStatus
+    reason: str | None = None
+    outcome: IncidentOutcome | None = None
+
+
+class BulkStatusResponse(BaseModel):
+    applied: int
+    errors: list[str]
