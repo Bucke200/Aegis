@@ -17,6 +17,7 @@ from aegis.common.models.ops import User
 router = APIRouter(prefix="/users", tags=["users"])
 
 AdminOnly = Depends(require_role(UserRole.ADMIN))
+AnalystOrAbove = Depends(require_role(UserRole.ANALYST, UserRole.LEAD, UserRole.ADMIN))
 
 
 def get_user_service(session: Session = Depends(get_session)) -> UserService:
@@ -29,6 +30,14 @@ def list_users(
     service: UserService = Depends(get_user_service),
 ) -> list[schemas.UserRead]:
     return [schemas.UserRead.model_validate(user) for user in service.list_users()]
+
+
+@router.get("/directory", response_model=list[schemas.UserSummary])
+def list_directory(
+    actor: User = AnalystOrAbove,
+    service: UserService = Depends(get_user_service),
+) -> list[schemas.UserSummary]:
+    return [schemas.UserSummary.model_validate(user) for user in service.list_directory()]
 
 
 @router.post("", response_model=schemas.UserRead, status_code=status.HTTP_201_CREATED)

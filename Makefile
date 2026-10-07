@@ -3,7 +3,7 @@
 PY := uv run python
 COMPOSE := docker compose
 
-.PHONY: help sync test lint format up down logs migrate revision eval eval-gate fetch-models clean
+.PHONY: help sync test lint format up down logs migrate revision eval eval-gate fetch-models frontend-install frontend-dev frontend-test frontend-build e2e clean
 
 help:
 	@echo "Aegis - common commands"
@@ -23,6 +23,12 @@ help:
 	@echo "  make eval          Run the detector evaluation on the golden set"
 	@echo "  make eval-gate     Compare the latest eval report to the baseline"
 	@echo "  make fetch-models  Pre-download ML model weights into ./models"
+	@echo ""
+	@echo "  make frontend-install  Install dashboard dependencies"
+	@echo "  make frontend-dev      Run the Vite dev server"
+	@echo "  make frontend-test     Run the Vitest suite"
+	@echo "  make frontend-build    Type-check and build the dashboard"
+	@echo "  make e2e           Seed and run the Playwright suite (API must be up)"
 	@echo "  make clean         Remove local caches"
 
 sync:
@@ -63,6 +69,23 @@ eval-gate:
 
 fetch-models:
 	uv run --group analysis --group media python -m aegis.pipeline.fetch_models
+
+frontend-install:
+	cd frontend && npm ci
+
+frontend-dev:
+	cd frontend && npm run dev
+
+frontend-test:
+	cd frontend && npm run test
+
+frontend-build:
+	cd frontend && npm run build
+
+e2e:
+	uv run python frontend/e2e/seed.py
+	cd frontend && npm run build
+	cd frontend && npx playwright test
 
 clean:
 	$(PY) -c "import pathlib, shutil; [shutil.rmtree(p, ignore_errors=True) for p in pathlib.Path('.').rglob('__pycache__')]; [shutil.rmtree(p, ignore_errors=True) for p in ['.pytest_cache', '.mypy_cache', '.ruff_cache', '.coverage', 'htmlcov']]"

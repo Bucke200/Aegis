@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from functools import lru_cache
+from typing import Literal
 
 from pydantic import SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -47,6 +48,8 @@ class Settings(BaseSettings):
     refresh_token_days: int = 30
     refresh_cookie_name: str = "aegis_refresh"
     refresh_cookie_secure: bool = False
+    refresh_cookie_samesite: Literal["lax", "strict", "none"] = "lax"
+    cors_origins: str = "http://localhost:5173,http://localhost:4173"
     rate_limit_per_minute: int = 120
     event_consumer_enabled: bool = True
 

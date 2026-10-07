@@ -9,18 +9,18 @@ __pycache__/
 *$py.class
 *.so
 .Python
-build/
-develop-eggs/
-dist/
-downloads/
-eggs/
-.eggs/
-lib/
-lib64/
-parts/
-sdist/
-var/
-wheels/
+/build/
+/develop-eggs/
+/dist/
+/downloads/
+/eggs/
+/.eggs/
+/lib/
+/lib64/
+/parts/
+/sdist/
+/var/
+/wheels/
 *.egg-info/
 .installed.cfg
 *.egg
@@ -29,7 +29,7 @@ MANIFEST
 # Virtual environments
 .venv/
 venv/
-env/
+/env/
 ENV/
 env.bak/
 venv.bak/
@@ -54,6 +54,9 @@ yarn-error.log*
 # React build
 frontend/build/
 frontend/dist/
+frontend/test-results/
+frontend/playwright-report/
+frontend/e2e/.artifacts/
 
 # IDE
 .vscode/
@@ -75,6 +78,7 @@ reports/eval/report.md
 
 # Generated datasets
 data/synthetic/
+data/labelling/
 
 # Model weights cache (repository root only)
 /models/

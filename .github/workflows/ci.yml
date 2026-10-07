@@ -38,6 +38,7 @@ jobs:
   test:
     name: Tests
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     services:
       postgres:
         image: pgvector/pgvector:pg16
@@ -132,7 +133,8 @@ jobs:
           cat pytest-output.txt
           if [ "$status" -ne 0 ]; then
             summary=$(grep -E "^(FAILED|ERROR)" pytest-output.txt | head -n 20 | tr '\n' ' ')
-            echo "::error::pytest failed: $summary"
+            trailer=$(tail -n 8 pytest-output.txt | tr '\n' '|')
+            echo "::error::pytest failed: $summary tail: $trailer"
           fi
           exit "$status"
 
@@ -150,3 +152,118 @@ jobs:
         run: uv sync --frozen
       - name: pip-audit
         run: uv run --with pip-audit pip-audit
+
+  frontend:
+    name: Frontend
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install dependencies
+        run: npm ci
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Unit tests
+        run: npm test
+      - name: Build
+        run: npm run build
+      - name: npm audit
+        run: npm audit --audit-level=high
+
+  e2e:
+    name: End-to-end
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: aegis
+          POSTGRES_PASSWORD: aegis123
+          POSTGRES_DB: aegis_e2e
+        ports:
+          - "5432:5432"
+        options: >-
+          --health-cmd "pg_isready -U aegis -d aegis_e2e"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+      rabbitmq:
+        image: rabbitmq:4-management
+        env:
+          RABBITMQ_DEFAULT_USER: aegis
+          RABBITMQ_DEFAULT_PASS: aegis123
+        ports:
+          - "5672:5672"
+        options: >-
+          --health-cmd "rabbitmq-diagnostics -q ping"
+          --health-interval 10s
+          --health-timeout 10s
+          --health-retries 10
+    env:
+      AEGIS_DATABASE_URL: postgresql+psycopg://aegis:aegis123@localhost:5432/aegis_e2e
+      AEGIS_RABBITMQ_URL: amqp://aegis:aegis123@localhost:5672/
+      AEGIS_JWT_SECRET: e2e-jwt-secret-not-production
+      AEGIS_FINGERPRINT_SALT: e2e-fingerprint-salt
+      AEGIS_TOXICITY_ENABLED: "false"
+      AEGIS_CORS_ORIGINS: http://localhost:4173
+      VITE_API_URL: http://localhost:8000
+      E2E_API_URL: http://localhost:8000
+      E2E_BASE_URL: http://localhost:4173
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v7
+        with:
+          version: ${{ env.UV_VERSION }}
+          python-version: ${{ env.PYTHON_VERSION }}
+          enable-cache: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install dependencies
+        run: uv sync --frozen
+      - name: Migrate and seed
+        run: |
+          uv run alembic upgrade head
+          uv run python frontend/e2e/seed.py
+      - name: Start API and workers
+        run: |
+          uv run aegis-normalizer > normalizer.log 2>&1 &
+          sleep 3
+          uv run aegis-api > api.log 2>&1 &
+          uv run aegis-worker > worker.log 2>&1 &
+          uv run python -m aegis.pipeline.outbox_publisher > outbox.log 2>&1 &
+          for attempt in $(seq 1 60); do
+            if curl -fsS http://localhost:8000/health; then
+              echo "API is ready"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "::error::API did not become healthy"
+          cat api.log || true
+          exit 1
+      - name: Install dashboard dependencies
+        working-directory: frontend
+        run: npm ci
+      - name: Build dashboard
+        working-directory: frontend
+        run: npm run build
+      - name: Install Playwright browsers
+        working-directory: frontend
+        run: npx playwright install --with-deps chromium
+      - name: Run Playwright
+        working-directory: frontend
+        run: npx playwright test
+      - name: Dump service logs on failure
+        if: failure()
+        run: tail -n 100 api.log normalizer.log worker.log outbox.log || true

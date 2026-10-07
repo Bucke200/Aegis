@@ -68,6 +68,15 @@ class UserService:
     def list_users(self) -> list[User]:
         return list(self.session.execute(select(User).order_by(User.created_at)).scalars())
 
+    def list_directory(self) -> list[User]:
+        """Active users, for the incident assignee picker."""
+
+        return list(
+            self.session.execute(
+                select(User).where(User.is_active.is_(True)).order_by(User.display_name, User.email)
+            ).scalars()
+        )
+
     def get_user(self, user_id: uuid.UUID) -> User:
         user = self.session.get(User, user_id)
         if user is None:

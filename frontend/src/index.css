@@ -1,0 +1,17 @@
+@import 'tailwindcss';
+
+:root {
+  color-scheme: light;
+}
+
+body {
+  @apply bg-slate-100 text-slate-900 antialiased;
+}
+
+a {
+  @apply text-blue-700 hover:text-blue-900;
+}
+
+button {
+  @apply cursor-pointer;
+}

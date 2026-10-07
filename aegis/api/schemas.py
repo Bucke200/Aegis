@@ -125,6 +125,37 @@ class FingerprintRead(BaseModel):
     created_at: datetime
 
 
+class AccountSummary(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    source: Source
+    platform_account_id: str
+    handle: str | None
+    display_name: str | None
+
+
+class ItemSummary(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    source: Source
+    platform_item_id: str
+    url: str | None
+    text: str | None
+    language: str | None
+    collected_at: datetime
+
+
+class UserSummary(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    email: str
+    display_name: str | None
+    role: UserRole
+
+
 class IncidentRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -146,6 +177,10 @@ class IncidentRead(BaseModel):
     merged_into_id: uuid.UUID | None
     created_at: datetime
     updated_at: datetime
+    vip_ids: list[uuid.UUID] = Field(default_factory=list)
+    item: ItemSummary | None = None
+    assignee: UserSummary | None = None
+    account: AccountSummary | None = None
 
 
 class DetectionRead(BaseModel):
@@ -192,16 +227,6 @@ class EvidenceArtifactRead(BaseModel):
     sha256: str
     size: int
     captured_at: datetime
-
-
-class AccountSummary(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-
-    id: uuid.UUID
-    source: Source
-    platform_account_id: str
-    handle: str | None
-    display_name: str | None
 
 
 class CampaignSummary(BaseModel):
@@ -290,3 +315,8 @@ class UserScopeRead(BaseModel):
     user_id: uuid.UUID
     vip_id: uuid.UUID
     can_reveal_sensitive: bool
+
+
+class MeResponse(BaseModel):
+    user: UserRead
+    scopes: list[UserScopeRead]
