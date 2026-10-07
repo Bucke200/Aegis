@@ -73,6 +73,34 @@ async def _async_wait(predicate: Any, timeout: float = 120.0) -> bool:
     return False
 
 
+async def _connect_ready(
+    url: str,
+    *,
+    attempts: int = 30,
+    delay: float = 2.0,
+) -> aio_pika.abc.AbstractRobustConnection:
+    """Connect, retrying while RabbitMQ finishes restarting.
+
+    A reset during the AMQP handshake makes the initial connect_robust call
+    raise instead of retrying, so probe with our own retry loop.
+    """
+
+    last_error: Exception | None = None
+    for _ in range(attempts):
+        try:
+            return await aio_pika.connect_robust(url)
+        except Exception as error:
+            last_error = error
+            await asyncio.sleep(delay)
+    raise RuntimeError(f"broker did not become ready: {last_error}")
+
+
+async def _probe_broker(url: str) -> None:
+    connection = await _connect_ready(url)
+    with contextlib.suppress(Exception):
+        await connection.close()
+
+
 def _insert_receipt(engine: Engine, dedup_key: str) -> None:
     with engine.begin() as connection:
         connection.execute(
@@ -116,7 +144,7 @@ def test_broker_restart_processes_each_message_once() -> None:
     total = 1000
 
     async def scenario() -> None:
-        connection = await aio_pika.connect_robust(os.environ["AEGIS_TEST_RABBITMQ_URL"])
+        connection = await _connect_ready(os.environ["AEGIS_TEST_RABBITMQ_URL"])
         try:
             channel = await connection.channel(publisher_confirms=True)
             await channel.declare_queue(queue_name, durable=True, arguments=dict(QUORUM))
@@ -146,7 +174,7 @@ def test_broker_restart_processes_each_message_once() -> None:
             with contextlib.suppress(Exception):
                 await connection.close()
 
-        connection = await aio_pika.connect_robust(os.environ["AEGIS_TEST_RABBITMQ_URL"])
+        connection = await _connect_ready(os.environ["AEGIS_TEST_RABBITMQ_URL"])
         try:
             channel = await connection.channel()
             dlq = await channel.declare_queue(dead_letter_queue(queue_name), durable=True, arguments=dict(QUORUM))
@@ -248,15 +276,21 @@ def test_worker_killed_mid_batch_loses_and_duplicates_nothing(pg_engine: Engine,
         payloads.append(payload)
 
     env = {**os.environ, "AEGIS_TOXICITY_ENABLED": "false"}
+    asyncio.run(_probe_broker(os.environ["AEGIS_TEST_RABBITMQ_URL"]))
     normalizer = _spawn("aegis.pipeline.normalizer", tmp_path / "normalizer.log", env)
     worker: subprocess.Popen[bytes] | None = None
     try:
         time.sleep(3)
         worker = _spawn("aegis.pipeline.analysis", tmp_path / "worker-1.log", env)
         time.sleep(2)
-        if worker.poll() is not None or normalizer.poll() is not None:
+        exited = []
+        if normalizer.poll() is not None:
+            exited.append(f"normalizer exit code {normalizer.returncode}")
+        if worker.poll() is not None:
+            exited.append(f"worker exit code {worker.returncode}")
+        if exited:
             _dump_logs(tmp_path)
-            pytest.fail("worker or normalizer exited during startup")
+            pytest.fail(f"processes exited during startup: {', '.join(exited)}")
 
         asyncio.run(_publish_items(payloads))
 
