@@ -46,7 +46,17 @@ jobs:
       - name: Create the test database
         run: docker compose exec -T postgres createdb -U aegis aegis_test
       - name: Run the durability suite
-        run: make integration
+        run: |
+          set +e
+          AEGIS_INTEGRATION=1 uv run pytest tests/test_aegis_durability.py -v --tb=short > durability-output.txt 2>&1
+          status=$?
+          cat durability-output.txt
+          if [ "$status" -ne 0 ]; then
+            summary=$(grep -E "^(FAILED|ERROR|INTERNALERROR)" durability-output.txt | head -n 20 | tr '\n' ' ')
+            trailer=$(tail -n 12 durability-output.txt | tr '\n' '|')
+            echo "::error::durability suite failed (pytest exit $status): $summary tail: $trailer"
+          fi
+          exit "$status"
       - name: Dump infrastructure logs on failure
         if: failure()
         run: docker compose logs --tail=200
