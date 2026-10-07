@@ -75,10 +75,11 @@ Ordering principle: build a thin end-to-end slice first. The slice is replay dat
   - _Requirements: 16.2_
 
 - [ ] 4.3 Build the labelled golden set (starts now; must complete before task 7.2 tunes the calibrator)
-  - Write annotation guidelines covering intent classes, severity examples, and edge cases (satire, quotes, news reporting of threats); name the labellers and their weekly capacity
-  - Label an initial set: 300+ items per threat class per language across English, Hindi, and Hinglish (six canonical intent classes, up to ~5,400 items) plus synthetic impersonation and leak sets
-  - Have a second reviewer check each labelled item before it enters the set
-  - Done when: `make eval` reports per-detector, per-language precision and recall from the reviewed set, and the set is complete enough to fit the isotonic calibrator (task 7.2) and to gate CI (task 18.2)
+  - Maintain two sets per `docs/annotation-guidelines.md`: a committed gate set (AI-drafted synthetic candidates, blind-labelled and human-confirmed) for drift detection, and a local reality set of real text (public research datasets, then analyst labels) used later to fit the isotonic calibrator
+  - Label blind against the six canonical classes with `python -m aegis.eval {generate,sheet,import,stats,sample,merge}`; the generator's intended class and the human label are recorded independently
+  - The second reviewer checks every disagreement, every ambiguous item, and a deterministic 25% sample; track Cohen's kappa (target >= 0.7). The 180-item pilot also produces one written rule per hard boundary (criticism/harassment, harassment/violent threat, incitement/violent threat, quoted or reported threats)
+  - Initial gate-set target: 100 items per class per language (1,800 items), expandable to the 300+ design target; synthetic impersonation and leak sets are labelled by construction
+  - Done when: `make eval` reports per-detector, per-language precision and recall from the reviewed gate set, and the reality set is complete enough to fit the isotonic calibrator (task 7.2); the CI gate wiring lands with task 18.2
   - _Requirements: 16.2, 16.3_
 
 ---
