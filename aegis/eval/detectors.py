@@ -8,10 +8,25 @@ registry that this module imports) and are evaluated the same way.
 from __future__ import annotations
 
 from collections.abc import Callable
+from dataclasses import dataclass
 
 from aegis.eval.models import GoldenItem
 
-Detector = Callable[[GoldenItem], bool]
+
+@dataclass(frozen=True)
+class Prediction:
+    """A detector's verdict: whether it fired, plus an optional class label.
+
+    Label-predicting detectors (the LLM intent classifier) fill ``label`` so the
+    report can build a per-class confusion matrix alongside the binary metrics.
+    """
+
+    fired: bool
+    label: str | None = None
+
+
+DetectorResult = bool | Prediction
+Detector = Callable[[GoldenItem], DetectorResult]
 
 DETECTORS: dict[str, Detector] = {}
 

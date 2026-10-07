@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, Field, field_validator
 
 from aegis.detectors.intent import INTENT_LABELS
 
@@ -66,6 +66,16 @@ class Metrics(BaseModel):
     f1: float = 0.0
 
 
+class ClassBreakdown(BaseModel):
+    """Expected-vs-predicted counts for label-predicting detectors.
+
+    Report-only: the CI gate checks the binary aggregate metrics, because a
+    100-item cell per class and language is too small to gate on reliably.
+    """
+
+    matrix: dict[str, dict[str, int]] = Field(default_factory=dict)
+
+
 class EvalReport(BaseModel):
     """Per-detector, per-language evaluation report."""
 
@@ -73,3 +83,4 @@ class EvalReport(BaseModel):
     golden_path: str
     item_count: int
     detectors: dict[str, dict[str, Metrics]]
+    per_class: dict[str, dict[str, ClassBreakdown]] = Field(default_factory=dict)

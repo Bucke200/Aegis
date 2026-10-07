@@ -114,26 +114,34 @@ The 180-item pilot itself is a human labelling step and is pending.
 
 ### Workstream 4 - Adapters, Ollama dev provider, identity calibrator, baseline
 
-- Metrics per section C4.
-- Detector adapters: `text_lexicon` runs in the lean env; `text_intent_llm` and
-  `text_toxicity` read committed caches (section C7). A missing cache entry fails
-  the run loudly.
-- Provider: allow `AEGIS_LLM_PROVIDER=ollama` with an empty API key in
-  `build_classifier`; keep `json_object` + Pydantic validation + one retry; fall
-  back to the native `/api/chat` endpoint with a JSON schema only if the invalid
-  JSON rate is high. Add `calibration: "identity"` to detection details.
-- Model benchmark after the pilot labels exist: run `llama3.2:3b`, `qwen2.5:3b`,
-  and `gemma3:4b` over the 180 items; compare valid-JSON rate, threat/non-threat
-  F1 per language, items per second, and `ollama ps` GPU share. Switch only on
+Status: tooling implemented on `phase1-eval-adapters` (per-class metrics,
+adapters, commits caches, cache/benchmark CLI, Ollama provider, identity
+marker). Caches, model choice, and the new baseline wait for the pilot labels
+and the WSL Ollama setup.
+
+- Metrics per section C4: `EvalReport.per_class` carries a per-language
+  confusion matrix; the gate still checks only the aggregate table.
+- Detector adapters (`aegis/eval/adapters.py`): `text_lexicon` runs directly;
+  `text_intent_llm` and `text_toxicity` read committed caches
+  (`aegis/eval/caches.py`, section C7). A missing cache entry fails the run.
+- Refresh and benchmark:
+  `python -m aegis.eval cache --llm --toxicity --model aegis-intent` and
+  `python -m aegis.eval benchmark --models llama3.2:3b,qwen2.5:3b,gemma3:4b`.
+- Provider: `AEGIS_LLM_PROVIDER=ollama` works with an empty API key; keep
+  `json_object` + Pydantic validation + one retry; fall back to the native
+  `/api/chat` schema mode only if the invalid JSON rate is high. Detections
+  carry `calibration: "identity"`.
+- Model benchmark after the pilot: compare valid-JSON rate, threat/non-threat
+  F1 per language, items per second, and `ollama ps` GPU share; switch only on
   evidence.
-- Regenerate `reports/eval/baseline.json`; `make eval` / `make eval-gate` exercise
-  it. Mark task 4.3 done; Phase 1 closes here.
+- Regenerate `reports/eval/baseline.json`; `make eval` / `make eval-gate`
+  exercise it. Mark task 4.3 done; Phase 1 closes here.
 
 ## 4. RTX 3050 (4 GB) settings
 
 - Model: start with `llama3.2:3b` (2.0 GB, comfortable; Hindi officially supported).
   `qwen2.5:3b` is a fallback but research-only licensed; `gemma3:4b` is tight.
-- Pin the config in `deploy/ollama/Modelfile.aegis-intent`:
+- Pin the config in `deploy/ollama/Modelfile.aegis-intent` (committed):
   `FROM llama3.2:3b`, `PARAMETER num_ctx 2048`, `PARAMETER temperature 0`,
   `PARAMETER seed 42`; then `ollama create aegis-intent -f ...`.
 - One model, one request at a time: `OLLAMA_NUM_PARALLEL=1`,

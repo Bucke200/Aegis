@@ -274,7 +274,10 @@ def build_classifier() -> IntentClassifier | None:
     """Build the Stage 2 classifier when an LLM is configured, else None."""
 
     settings = get_settings()
-    if not settings.llm_model or not settings.llm_api_key.get_secret_value():
+    if not settings.llm_model:
+        return None
+    provider = settings.llm_provider.strip().lower()
+    if provider != "ollama" and not settings.llm_api_key.get_secret_value():
         return None
     return IntentClassifier(OpenAICompatibleClient())
 

@@ -31,6 +31,23 @@ def render_markdown(report: EvalReport) -> str:
                 f"| {metrics.tn} | {metrics.support} |"
             )
     lines.append("")
+
+    if report.per_class:
+        lines.append("## Per-class confusion (report-only; the gate uses the table above)")
+        lines.append("")
+        for class_detector, class_languages in sorted(report.per_class.items()):
+            for language, breakdown in sorted(class_languages.items()):
+                predicted_labels = sorted({predicted for counts in breakdown.matrix.values() for predicted in counts})
+                lines.append(f"### {class_detector} / {language}")
+                lines.append("")
+                header = " | ".join(predicted_labels)
+                lines.append(f"| expected \\ predicted | {header} |")
+                lines.append("|---|" + "---|" * len(predicted_labels))
+                for expected, counts in sorted(breakdown.matrix.items()):
+                    cells = " | ".join(str(counts.get(label, 0)) for label in predicted_labels)
+                    lines.append(f"| {expected} | {cells} |")
+                lines.append("")
+
     return "\n".join(lines)
 
 
