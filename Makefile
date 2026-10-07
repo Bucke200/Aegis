@@ -3,7 +3,7 @@
 PY := uv run python
 COMPOSE := docker compose
 
-.PHONY: help sync test lint format up down logs migrate revision eval eval-gate fetch-models frontend-install frontend-dev frontend-test frontend-build integration e2e clean
+.PHONY: help sync test lint format up down logs migrate revision eval eval-gate eval-cache benchmark-models fetch-models frontend-install frontend-dev frontend-test frontend-build integration e2e clean
 
 help:
 	@echo "Aegis - common commands"
@@ -22,6 +22,9 @@ help:
 	@echo ""
 	@echo "  make eval          Run the detector evaluation on the golden set"
 	@echo "  make eval-gate     Compare the latest eval report to the baseline"
+	@echo "  make eval-cache    Refresh the committed LLM and toxicity caches (needs Ollama)"
+	@echo "  make benchmark-models"
+	@echo "                     Compare local models on the labelled pilot set"
 	@echo "  make fetch-models  Pre-download ML model weights into ./models"
 	@echo ""
 	@echo "  make frontend-install  Install dashboard dependencies"
@@ -67,6 +70,12 @@ eval:
 
 eval-gate:
 	$(PY) -m aegis.eval gate --baseline reports/eval/baseline.json
+
+eval-cache:
+	$(PY) -m aegis.eval cache --llm --toxicity --model aegis-intent
+
+benchmark-models:
+	$(PY) -m aegis.eval benchmark --models llama3.2:3b,qwen2.5:3b,gemma3:4b
 
 fetch-models:
 	uv run --group analysis --group media python -m aegis.pipeline.fetch_models
