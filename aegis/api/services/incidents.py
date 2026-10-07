@@ -218,11 +218,13 @@ class IncidentService:
         incident = self.session.get(Incident, incident_id)
         if incident is None:
             raise IncidentNotFoundError(f"incident {incident_id} not found")
-        scope = self._scope_condition(user)
+        scopes = scoped_vip_ids(self.session, user)
         if (
-            scope is not None
+            scopes is not None
             and not self.session.execute(
-                select(IncidentVip.incident_id).where(IncidentVip.incident_id == incident_id).where(scope)
+                select(IncidentVip.incident_id)
+                .where(IncidentVip.incident_id == incident_id)
+                .where(IncidentVip.vip_id.in_(scopes))
             ).first()
         ):
             raise IncidentNotFoundError(f"incident {incident_id} not in your scope")
