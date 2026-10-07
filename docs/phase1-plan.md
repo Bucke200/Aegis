@@ -65,6 +65,9 @@ confirmed. That is why the two sets are separate.
 
 ### Workstream 1 - Durability and exactly-once
 
+Status: implemented on `phase1-durability`; validated by the Integration
+workflow on pull requests touching queue code and nightly on `master`.
+
 - `tests/test_aegis_durability.py`, gated by `AEGIS_INTEGRATION=1` (normal pytest skips).
   - Broker restart: publish 1,000 confirmed messages; the consumer writes to
     Postgres keyed by dedup key with `ON CONFLICT DO NOTHING`; `docker restart
@@ -72,8 +75,9 @@ confirmed. That is why the two sets are separate.
   - Worker killed mid-batch with `proc.kill()` (SIGKILL) -> restart -> items and
     incidents exactly once by dedup key.
 - `make integration` target; compose Postgres + RabbitMQ only.
-- `.github/workflows/nightly.yml`: `schedule` + `workflow_dispatch`, runs the
-  integration suite, uploads service logs. Not triggered on push.
+- `.github/workflows/nightly.yml`: schedule, dispatch, and path-filtered pull
+  requests touching queue code; runs the integration suite, uploads service logs,
+  tears the stack down. Not triggered on every push.
 - Done when: both scenarios pass locally and nightly; task 3.1's durability
   Done-when is closed.
 
@@ -169,10 +173,10 @@ WSL2 side (pending):
 8. Ollama: install inside Ubuntu (enable systemd in `/etc/wsl.conf` or run
    `ollama serve` manually); confirm `nvidia-smi` sees the 3050; pull `llama3.2:3b`;
    create `aegis-intent`; confirm `ollama ps` shows 100% GPU after one request.
-9. Smoke test: `make up` -> `make migrate` -> `make test` -> frontend
-   `npm ci && npm test && npm run build`; one real classification call through the
-   app to `aegis-intent`; open the dashboard from the Windows browser. `make
-   integration` follows Workstream 1.
+9. Smoke test: `make up` -> `make migrate` -> `make test` -> `make integration`
+   (needs Docker) -> frontend `npm ci && npm test && npm run build`; one real
+   classification call through the app to `aegis-intent`; open the dashboard from
+   the Windows browser.
 10. Start the coding agent inside Ubuntu (`cd ~/projects/Aegis && opencode`) and
     log in to the model provider again; Windows credentials do not carry over.
 

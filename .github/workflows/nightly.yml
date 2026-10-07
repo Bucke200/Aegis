@@ -1,0 +1,55 @@
+name: Nightly integration
+
+on:
+  schedule:
+    - cron: "0 21 * * *"
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "aegis/common/messaging.py"
+      - "aegis/common/topology.py"
+      - "tests/test_aegis_durability.py"
+      - ".github/workflows/nightly.yml"
+
+concurrency:
+  group: nightly-integration
+  cancel-in-progress: false
+
+env:
+  UV_VERSION: "0.11.27"
+  PYTHON_VERSION: "3.12"
+
+jobs:
+  durability:
+    name: Durability
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      AEGIS_INTEGRATION: "1"
+      AEGIS_TOXICITY_ENABLED: "false"
+      AEGIS_JWT_SECRET: nightly-integration-secret
+      AEGIS_FINGERPRINT_SALT: nightly-fingerprint-salt
+      AEGIS_TEST_DATABASE_URL: postgresql+psycopg://aegis:aegis123@localhost:5432/aegis_test
+      AEGIS_TEST_RABBITMQ_URL: amqp://aegis:aegis123@localhost:5672/
+      AEGIS_TEST_RABBITMQ_CONTAINER: aegis_rabbitmq
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v7
+        with:
+          version: ${{ env.UV_VERSION }}
+          python-version: ${{ env.PYTHON_VERSION }}
+          enable-cache: true
+      - name: Install dependencies
+        run: uv sync --frozen
+      - name: Start Postgres and RabbitMQ
+        run: docker compose up -d --wait postgres rabbitmq
+      - name: Create the test database
+        run: docker compose exec -T postgres createdb -U aegis aegis_test
+      - name: Run the durability suite
+        run: make integration
+      - name: Dump infrastructure logs on failure
+        if: failure()
+        run: docker compose logs --tail=200
+      - name: Tear down
+        if: always()
+        run: docker compose down -v
