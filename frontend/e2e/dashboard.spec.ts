@@ -42,7 +42,7 @@ test('login, live incident, assign, note, and resolve', async ({ page }) => {
   await expect(page).toHaveURL(/\/incidents\/[0-9a-f-]+/)
   await expect(page.getByRole('heading', { name: 'Detections' })).toBeVisible()
 
-  await page.getByLabel('Assignee').locator('option', { hasText: 'E2E Admin' }).waitFor({ timeout: 15_000 })
+  await expect(page.getByLabel('Assignee').locator('option', { hasText: 'E2E Admin' })).toHaveCount(1)
   await page.getByLabel('Assignee').selectOption({ label: 'E2E Admin' })
   await page.getByRole('button', { name: 'Assign' }).click()
   await expect(page.getByText('Assigned')).toBeVisible({ timeout: 15_000 })

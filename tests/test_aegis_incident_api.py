@@ -418,7 +418,7 @@ def test_payload_includes_vip_item_and_assignee(client: TestClient, context: dic
     assert row["vip_ids"] == [context["vip_a"]]
     assert row["item"]["id"] == item_id
     assert row["item"]["text"] == "enriched incident snippet"
-    assert row["item"]["source"] == "telegram"
+    assert row["item"]["source"] == "replay"
     assert row["assignee"]["id"] == context["user_ids"]["analyst"]
     assert row["account"]["id"]
 
