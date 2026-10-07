@@ -3,7 +3,7 @@
 PY := uv run python
 COMPOSE := docker compose
 
-.PHONY: help sync test lint format up down logs migrate revision eval eval-gate fetch-models frontend-install frontend-dev frontend-test frontend-build e2e clean
+.PHONY: help sync test lint format up down logs migrate revision eval eval-gate fetch-models frontend-install frontend-dev frontend-test frontend-build integration e2e clean
 
 help:
 	@echo "Aegis - common commands"
@@ -28,6 +28,7 @@ help:
 	@echo "  make frontend-dev      Run the Vite dev server"
 	@echo "  make frontend-test     Run the Vitest suite"
 	@echo "  make frontend-build    Type-check and build the dashboard"
+	@echo "  make integration   Durability tests (needs Docker, Postgres, RabbitMQ)"
 	@echo "  make e2e           Seed and run the Playwright suite (API must be up)"
 	@echo "  make clean         Remove local caches"
 
@@ -81,6 +82,9 @@ frontend-test:
 
 frontend-build:
 	cd frontend && npm run build
+
+integration:
+	AEGIS_INTEGRATION=1 uv run pytest tests/test_aegis_durability.py -v
 
 e2e:
 	uv run python frontend/e2e/seed.py
