@@ -109,10 +109,12 @@ class IntentClassifier:
         client: LLMClient,
         *,
         calibrator: Calibrator = identity_calibrator,
+        calibrator_name: str = "identity",
         max_attempts: int = 2,
     ) -> None:
         self.client = client
         self.calibrator = calibrator
+        self.calibrator_name = calibrator_name
         self.max_attempts = max_attempts
 
     def build_prompt(self, text: str, vip_names: list[str]) -> str:
@@ -149,6 +151,7 @@ class IntentClassifier:
                 "specificity": classification.specificity,
                 "target_vip": classification.target_vip,
                 "degraded": False,
+                "calibration": self.calibrator_name,
             },
             input_variant=input_variant,
         )

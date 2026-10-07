@@ -15,12 +15,25 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import asyncio
 import json
+import re
+import shutil
+import subprocess
+import tempfile
 from pathlib import Path
 
 from aegis.eval import annotate
+from aegis.eval.adapters import build_detectors
+from aegis.eval.benchmark import run_classifications, score_predictions, write_benchmark
+from aegis.eval.caches import (
+    DEFAULT_LLM_CACHE,
+    DEFAULT_TOXICITY_CACHE,
+    fetch_ollama_digest,
+    refresh_llm_cache,
+    refresh_toxicity_cache,
+)
 from aegis.eval.dataset import load_golden
-from aegis.eval.detectors import get_detectors
 from aegis.eval.gate import compare_reports
 from aegis.eval.models import EvalReport
 from aegis.eval.report import REPORT_JSON, write_report
@@ -82,12 +95,28 @@ def build_parser() -> argparse.ArgumentParser:
     merge_parser.add_argument("--sample-fraction", type=float, default=0.25)
     merge_parser.add_argument("--sample-seed", type=int, default=7)
 
+    cache_parser = subparsers.add_parser("cache", help="refresh the committed detector caches")
+    cache_parser.add_argument("--golden", type=Path, default=DEFAULT_GOLDEN)
+    cache_parser.add_argument("--llm", action="store_true", help="refresh the LLM intent cache")
+    cache_parser.add_argument("--toxicity", action="store_true", help="refresh the toxicity cache")
+    cache_parser.add_argument("--out-llm", type=Path, default=DEFAULT_LLM_CACHE)
+    cache_parser.add_argument("--out-toxicity", type=Path, default=DEFAULT_TOXICITY_CACHE)
+    cache_parser.add_argument("--model", default="aegis-intent")
+    cache_parser.add_argument("--ollama-url", default="http://localhost:11434")
+    cache_parser.add_argument("--force", action="store_true", help="re-fetch every labelled item")
+
+    benchmark_parser = subparsers.add_parser("benchmark", help="compare Ollama models on a labelled set")
+    benchmark_parser.add_argument("--golden", type=Path, default=Path("data/labelling/golden"))
+    benchmark_parser.add_argument("--models", required=True, help="comma-separated Ollama base models")
+    benchmark_parser.add_argument("--ollama-url", default="http://localhost:11434")
+    benchmark_parser.add_argument("--out", type=Path, default=Path("reports/labelling"))
+
     return parser
 
 
 def run_command(golden_path: Path, out_dir: Path) -> int:
     items = load_golden(golden_path)
-    report = evaluate(items, get_detectors(), golden_path=str(golden_path))
+    report = evaluate(items, build_detectors(), golden_path=str(golden_path))
     json_path, markdown_path = write_report(report, out_dir)
     print(f"evaluated {len(items)} items; wrote {json_path} and {markdown_path}")
     for detector, languages in sorted(report.detectors.items()):
@@ -174,6 +203,96 @@ def merge_command(
     return 0
 
 
+def cache_command(
+    golden_path: Path,
+    *,
+    llm: bool,
+    toxicity: bool,
+    out_llm: Path,
+    out_toxicity: Path,
+    model: str,
+    ollama_url: str,
+    force: bool,
+) -> int:
+    if not llm and not toxicity:
+        print("choose --llm and/or --toxicity")
+        return 2
+    items = load_golden(golden_path)
+    if llm:
+        from aegis.detectors.intent import IntentClassifier, OpenAICompatibleClient
+
+        digest = fetch_ollama_digest(ollama_url, model)
+        client = OpenAICompatibleClient(
+            base_url=f"{ollama_url.rstrip('/')}/v1",
+            api_key="ollama",
+            model=model,
+        )
+        written = asyncio.run(
+            refresh_llm_cache(
+                items,
+                classifier=IntentClassifier(client),
+                model_id=model,
+                model_digest=digest,
+                path=out_llm,
+                force=force,
+            )
+        )
+        print(f"llm cache: wrote {written} entries to {out_llm} (digest {digest[:12]})")
+    if toxicity:
+        from aegis.detectors.toxicity import TransformersToxicityScorer
+
+        written = refresh_toxicity_cache(
+            items,
+            scorer=TransformersToxicityScorer(),
+            path=out_toxicity,
+            force=force,
+        )
+        print(f"toxicity cache: wrote {written} entries to {out_toxicity}")
+    return 0
+
+
+def _benchmark_modelfile(base_model: str) -> str:
+    return f"FROM {base_model}\nPARAMETER num_ctx 2048\nPARAMETER temperature 0\nPARAMETER seed 42\n"
+
+
+def benchmark_command(golden_path: Path, models: str, ollama_url: str, out: Path) -> int:
+    from aegis.detectors.intent import IntentClassifier, OpenAICompatibleClient
+
+    if shutil.which("ollama") is None:
+        print("ollama CLI is not on PATH; install it in WSL before benchmarking")
+        return 2
+    items = [item for item in load_golden(golden_path) if item.effective_label]
+    if not items:
+        print(f"no labelled items under {golden_path}")
+        return 2
+
+    base_url = f"{ollama_url.rstrip('/')}/v1"
+    results = []
+    for base_model in [entry.strip() for entry in models.split(",") if entry.strip()]:
+        slug = re.sub(r"[^a-z0-9]+", "-", base_model.lower()).strip("-")
+        name = f"aegis-bench-{slug}"
+        with tempfile.NamedTemporaryFile("w", suffix=".Modelfile", delete=False, encoding="utf-8") as handle:
+            handle.write(_benchmark_modelfile(base_model))
+            modelfile = Path(handle.name)
+        try:
+            subprocess.run(["ollama", "create", name, "-f", str(modelfile)], check=True, capture_output=True)
+            classifier = IntentClassifier(OpenAICompatibleClient(base_url=base_url, api_key="ollama", model=name))
+            run = asyncio.run(run_classifications(classifier, items))
+            result = score_predictions(base_model, items, run)
+            results.append(result)
+            print(
+                f"{base_model}: valid_json={result.valid_json_rate:.3f} "
+                f"threat_f1={result.threat_f1:.3f} items/s={result.items_per_second:.2f}"
+            )
+        finally:
+            modelfile.unlink(missing_ok=True)
+            subprocess.run(["ollama", "rm", name], capture_output=True)
+
+    json_path, markdown_path = write_benchmark(results, out)
+    print(f"wrote {json_path} and {markdown_path}")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -201,6 +320,19 @@ def main(argv: list[str] | None = None) -> int:
             args.sample_fraction,
             args.sample_seed,
         )
+    if args.command == "cache":
+        return cache_command(
+            args.golden,
+            llm=args.llm,
+            toxicity=args.toxicity,
+            out_llm=args.out_llm,
+            out_toxicity=args.out_toxicity,
+            model=args.model,
+            ollama_url=args.ollama_url,
+            force=args.force,
+        )
+    if args.command == "benchmark":
+        return benchmark_command(args.golden, args.models, args.ollama_url, args.out)
     parser.print_help()
     return 2
 
