@@ -2,11 +2,19 @@
 
 from __future__ import annotations
 
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
+
+from aegis.detectors.intent import INTENT_LABELS
 
 
 class GoldenItem(BaseModel):
-    """One labelled item in the golden evaluation set."""
+    """One labelled item in the golden evaluation set.
+
+    Legacy smoke items only carry ``labels``/``intent``. Blind-labelled items
+    add provenance and review fields; ``final_label`` holds the canonical
+    intent class and ``labels`` carries the binary threat labels the detector
+    adapters gate on.
+    """
 
     id: str
     language: str
@@ -15,6 +23,34 @@ class GoldenItem(BaseModel):
     intent: str | None = None
     source: str = "synthetic"
     notes: str = ""
+    provenance: str = "synthetic"
+    intended_label: str | None = None
+    blind_label: str | None = None
+    final_label: str | None = None
+    annotator: str | None = None
+    reviewer: str | None = None
+    reviewed_at: str | None = None
+    edge_case: str | None = None
+    generator_model: str | None = None
+    guideline_version: str | None = None
+
+    @field_validator("intent", "intended_label", "final_label")
+    @classmethod
+    def _validate_labels(cls, value: str | None) -> str | None:
+        if value is not None and value not in INTENT_LABELS:
+            raise ValueError(f"unknown intent label {value!r}")
+        return value
+
+    @field_validator("blind_label")
+    @classmethod
+    def _validate_blind_label(cls, value: str | None) -> str | None:
+        if value is not None and value not in (*INTENT_LABELS, "ambiguous"):
+            raise ValueError(f"unknown blind label {value!r}")
+        return value
+
+    @property
+    def effective_label(self) -> str | None:
+        return self.final_label or self.intent
 
 
 class Metrics(BaseModel):
