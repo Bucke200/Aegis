@@ -98,7 +98,7 @@ def test_merged_payload_carries_target() -> None:
 
 
 @pytest.fixture
-def client(pg_engine) -> Iterator[TestClient]:
+def client(pg_engine, request: pytest.FixtureRequest) -> Iterator[TestClient]:
     def override_session() -> Iterator[Session]:
         session = Session(bind=pg_engine, expire_on_commit=False)
         try:
@@ -111,11 +111,15 @@ def client(pg_engine) -> Iterator[TestClient]:
             session.close()
 
     app.dependency_overrides[get_session] = override_session
-    app.state.event_consumer_enabled = bool(os.environ.get("AEGIS_TEST_RABBITMQ_URL"))
+    previous_enabled = app.state.event_consumer_enabled
+    app.state.event_consumer_enabled = request.node.get_closest_marker("ws_consumer") is not None and bool(
+        os.environ.get("AEGIS_TEST_RABBITMQ_URL")
+    )
     try:
         with TestClient(app) as test_client:
             yield test_client
     finally:
+        app.state.event_consumer_enabled = previous_enabled
         app.dependency_overrides.clear()
 
 
@@ -167,11 +171,10 @@ def _receive_with_timeout(websocket: Any, timeout: float = 10.0) -> dict[str, An
     return result["message"]
 
 
+@pytest.mark.ws_consumer
 @DB_REQUIRED
 @RABBITMQ_REQUIRED
 def test_end_to_end_incident_push_is_vip_scoped(client: TestClient, context: dict[str, Any]) -> None:
-    app.state.event_consumer_enabled = True
-
     async def publish_event(vip_ids: list[str], incident_id: str) -> None:
         from aegis.common.messaging import Producer, broker_channel
         from aegis.common.outbox import INCIDENT_CREATED

@@ -112,6 +112,9 @@ testpaths = ["tests"]
 python_files = ["test_*.py"]
 asyncio_mode = "auto"
 timeout = 120
+markers = [
+    "ws_consumer: start the RabbitMQ incident consumer in the test client",
+]
 addopts = "-q"
 
 [tool.uv]

@@ -44,9 +44,10 @@ confirmed. That is why the two sets are separate.
    `generator_model`, `guideline_version`; existing smoke set stays loadable.
 2. Layout: `data/golden/intent/{en,hi,hi-Latn}.jsonl`, `data/golden/impersonation/`,
    `data/golden/leaks/`; work products in gitignored `data/labelling/`.
-3. Tooling: `python -m aegis.eval annotate {generate,sheet,import,review,merge,stats}`.
-   `sheet` hides the intended label, shuffles rows, and writes UTF-8 with a BOM so
-   Excel renders Devanagari.
+3. Tooling: `python -m aegis.eval {generate,sheet,import,stats,sample,merge}`.
+   `sheet` hides the intended label, shuffles rows, and writes UTF-8 with a BOM
+   so Excel renders Devanagari. See `docs/annotation-guidelines.md` for the
+   full workflow.
 4. Metrics: per-class confusion matrix per language and binary threat/non-threat
    precision and recall (what the scorer consumes) are mandatory. The gate checks
    aggregates per detector per language only; per-class numbers are report-only,
@@ -83,15 +84,20 @@ workflow on pull requests touching queue code and nightly on `master`.
 
 ### Workstream 2 - Annotation infrastructure and blind pilot
 
-- `docs/annotation-guidelines.md`: six classes, four hard-boundary rules (written
-  during the pilot), satire/quote/news handling, doxxing fake-PII rule, blind
+Status: tooling implemented on `phase1-annotation` (guidelines, `GoldenItem` v2,
+candidate generator, annotate CLI, agreement stats, merge validation, tests).
+The 180-item pilot itself is a human labelling step and is pending.
+
+- `docs/annotation-guidelines.md`: six classes, the four hard-boundary drafts to
+  ratify in the pilot, satire/quote/news handling, doxxing fake-PII rule, blind
   protocol, capacity cap, review and adjudication process.
-- `GoldenItem` v2 per section C1.
+- `GoldenItem` v2 per section C1, including `blind_label` allowing `ambiguous`.
 - `aegis/eval/candidates.py`: seeded generator, 6 classes x 3 languages,
-  template/paraphrase banks, edge-case quotas, fake PII for doxxing.
-- `annotate` CLI per section C3; `load_golden` reads only `data/golden/`.
+  template banks, edge-case quotas, fake PII for doxxing.
+- `python -m aegis.eval {generate,sheet,import,stats,sample,merge}` per
+  section C3; `load_golden` reads only `data/golden/`.
 - Pilot: 180 items, blind labels, second pass as designed, exit report in
-  `reports/labelling/pilot.md`.
+  `reports/labelling/pilot.md` (produced by the annotator lead).
 - Reword `docs/tasks.md` task 4.3 to describe this two-set, blind, kappa-gated
   process (no deviation log).
 
