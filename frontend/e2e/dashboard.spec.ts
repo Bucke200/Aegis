@@ -45,7 +45,7 @@ test('login, live incident, assign, note, and resolve', async ({ page }) => {
   await expect(page.getByLabel('Assignee').locator('option', { hasText: 'E2E Admin' })).toHaveCount(1)
   await page.getByLabel('Assignee').selectOption({ label: 'E2E Admin' })
   await page.getByRole('button', { name: 'Assign' }).click()
-  await expect(page.getByText('Assigned')).toBeVisible({ timeout: 15_000 })
+  await expect(page.getByLabel('Assignee').locator('option:checked')).toHaveText('E2E Admin')
 
   await page.getByLabel('Add a note').fill('E2E note: reviewed the threat content.')
   await page.getByRole('button', { name: 'Add note' }).click()

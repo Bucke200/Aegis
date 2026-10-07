@@ -38,6 +38,7 @@ jobs:
   test:
     name: Tests
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     services:
       postgres:
         image: pgvector/pgvector:pg16
@@ -132,7 +133,8 @@ jobs:
           cat pytest-output.txt
           if [ "$status" -ne 0 ]; then
             summary=$(grep -E "^(FAILED|ERROR)" pytest-output.txt | head -n 20 | tr '\n' ' ')
-            echo "::error::pytest failed: $summary"
+            trailer=$(tail -n 8 pytest-output.txt | tr '\n' '|')
+            echo "::error::pytest failed: $summary tail: $trailer"
           fi
           exit "$status"
 
@@ -178,6 +180,7 @@ jobs:
   e2e:
     name: End-to-end
     runs-on: ubuntu-latest
+    timeout-minutes: 25
     services:
       postgres:
         image: pgvector/pgvector:pg16
