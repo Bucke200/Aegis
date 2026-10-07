@@ -173,7 +173,7 @@ Ordering principle: build a thin end-to-end slice first. The slice is replay dat
   - Done when: a new incident appears on a connected dashboard within 10 seconds, and never on a dashboard outside the VIP's scope
   - _Requirements: 11.1_
 
-- [ ] 9.4 Build the dashboard frontend
+- [x] 9.4 Build the dashboard frontend
   - Set up React + TypeScript + Vite, React Router, TanStack Query, and Tailwind
   - Build the login flow (with MFA), a live incident feed with filter sidebar, incident cards with all required fields, and an incident detail view (detections with highlighted spans, account panel, history, notes, status/assign/resolve controls)
   - Build VIP admin screens; make the layout responsive at tablet and desktop widths

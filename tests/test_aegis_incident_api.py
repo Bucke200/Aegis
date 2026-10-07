@@ -27,7 +27,7 @@ from aegis.common.models.enums import (
     UserRole,
 )
 from aegis.common.models.incidents import Incident, IncidentEvent, IncidentNote, IncidentVip
-from aegis.common.models.ops import Label, User
+from aegis.common.models.ops import Label, Outbox, User
 from aegis.common.models.reference import VIP
 from aegis.pipeline.normalizer import Normalizer
 
@@ -395,3 +395,48 @@ def test_assign_note_and_bulk(client: TestClient, context: dict[str, Any], pg_en
             select(func.count()).select_from(IncidentNote).where(IncidentNote.incident_id == uuid.UUID(incident_ids[0]))
         ).scalar_one()
     assert note_rows == 1
+
+
+@DB_REQUIRED
+def test_payload_includes_vip_item_and_assignee(client: TestClient, context: dict[str, Any], pg_engine) -> None:
+    with Session(pg_engine) as session:
+        item = _create_item(session, "enriched incident snippet", seed=110)
+        incident = _create_incident(session, item, context["vip_a_uuid"])
+        session.commit()
+        incident_id = str(incident.id)
+        item_id = str(item)
+
+    assigned = client.post(
+        f"/incidents/{incident_id}/assign",
+        json={"assignee_id": context["user_ids"]["analyst"]},
+        headers=_auth(context, "lead"),
+    )
+    assert assigned.status_code == 200, assigned.text
+
+    listing = client.get("/incidents", params={"vip_id": [context["vip_a"]]}, headers=_auth(context, "lead")).json()
+    row = next(row for row in listing["items"] if row["id"] == incident_id)
+    assert row["vip_ids"] == [context["vip_a"]]
+    assert row["item"]["id"] == item_id
+    assert row["item"]["text"] == "enriched incident snippet"
+    assert row["item"]["source"] == "telegram"
+    assert row["assignee"]["id"] == context["user_ids"]["analyst"]
+    assert row["account"]["id"]
+
+    detail = client.get(f"/incidents/{incident_id}", headers=_auth(context, "analyst")).json()
+    assert detail["incident"]["vip_ids"] == [context["vip_a"]]
+    assert detail["incident"]["item"]["id"] == item_id
+    assert detail["incident"]["assignee"]["id"] == context["user_ids"]["analyst"]
+
+    with Session(pg_engine) as session:
+        payload = (
+            session.execute(
+                select(Outbox.payload)
+                .where(Outbox.event_type == "incident.updated")
+                .where(Outbox.payload["incident_id"].astext == incident_id)
+                .order_by(Outbox.created_at.desc())
+            )
+            .scalars()
+            .first()
+        )
+    assert payload is not None
+    assert payload["vip_ids"] == [context["vip_a"]]

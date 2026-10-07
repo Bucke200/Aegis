@@ -143,6 +143,52 @@ services:
       minio-init:
         condition: service_completed_successfully
 
+  normalizer:
+    <<: *app-base
+    build:
+      context: .
+      target: analysis
+    image: aegis-analysis
+    container_name: aegis_normalizer
+    command: ["aegis-normalizer"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+
+  outbox:
+    <<: *app-base
+    build:
+      context: .
+      target: analysis
+    image: aegis-analysis
+    container_name: aegis_outbox
+    command: ["python", "-m", "aegis.pipeline.outbox_publisher"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        VITE_API_URL: ${FRONTEND_API_URL:-http://localhost:8000}
+    image: aegis-frontend
+    container_name: aegis_frontend
+    ports:
+      - "5173:80"
+    depends_on:
+      api:
+        condition: service_started
+    restart: unless-stopped
+
   clamav:
     image: clamav/clamav:stable
     container_name: aegis_clamav

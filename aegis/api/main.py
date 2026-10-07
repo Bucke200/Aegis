@@ -7,6 +7,7 @@ from contextlib import asynccontextmanager
 
 import uvicorn
 from fastapi import FastAPI, Request
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from aegis import __version__
@@ -62,6 +63,15 @@ def create_app() -> FastAPI:
 
     app.add_middleware(AuditMiddleware)
     app.add_middleware(RateLimitMiddleware)
+    cors_origins = [origin.strip() for origin in settings.cors_origins.split(",") if origin.strip()]
+    if cors_origins:
+        app.add_middleware(
+            CORSMiddleware,
+            allow_origins=cors_origins,
+            allow_credentials=True,
+            allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+            allow_headers=["Authorization", "Content-Type"],
+        )
 
     app.include_router(health_router)
     app.include_router(auth_router)

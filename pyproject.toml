@@ -82,7 +82,7 @@ packages = ["aegis"]
 [tool.ruff]
 target-version = "py312"
 line-length = 120
-extend-exclude = ["migrations/versions"]
+extend-exclude = ["migrations/versions", "frontend"]
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "UP", "B", "SIM", "C4", "PT"]

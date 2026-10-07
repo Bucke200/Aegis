@@ -26,7 +26,14 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        target: [api, analysis, media, capture]
+        include:
+          - target: api
+          - target: analysis
+          - target: media
+          - target: capture
+          - target: frontend
+            context: ./frontend
+            file: ./frontend/Dockerfile
     steps:
       - uses: actions/checkout@v4
         with:
@@ -59,7 +66,8 @@ jobs:
       - name: Build and push
         uses: docker/build-push-action@v6
         with:
-          context: .
+          context: ${{ matrix.context || '.' }}
+          file: ${{ matrix.file || './Dockerfile' }}
           target: ${{ matrix.target }}
           push: true
           tags: ${{ steps.meta.outputs.tags }}

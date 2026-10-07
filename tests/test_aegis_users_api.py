@@ -162,3 +162,14 @@ def test_cli_bootstraps_an_admin_who_can_log_in(client: TestClient, pg_engine) -
     login = client.post("/auth/login", json={"email": email, "password": "bootstrap-pass"})
     assert login.status_code == 200
     assert login.json()["role"] == "admin"
+
+
+@DB_REQUIRED
+def test_directory_is_available_to_analysts(client: TestClient, context: dict[str, str]) -> None:
+    directory = client.get("/users/directory", headers=_auth(context["analyst_token"]))
+    assert directory.status_code == 200, directory.text
+    rows = {row["id"]: row for row in directory.json()}
+    assert context["analyst"] in rows
+    assert rows[context["analyst"]]["role"] == "analyst"
+
+    assert client.get("/users/directory").status_code == 401

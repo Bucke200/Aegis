@@ -119,6 +119,53 @@ class IncidentService:
             stmt = stmt.where(Incident.created_at <= filters.created_to)
         return stmt
 
+    def _enrich(self, incidents: list[Incident]) -> list[Incident]:
+        """Attach VIP ids, item, account, and assignee for the API response."""
+
+        if not incidents:
+            return incidents
+        incident_ids = [incident.id for incident in incidents]
+        vip_map: dict[uuid.UUID, list[uuid.UUID]] = {incident_id: [] for incident_id in incident_ids}
+        for incident_id, vip_id in self.session.execute(
+            select(IncidentVip.incident_id, IncidentVip.vip_id).where(IncidentVip.incident_id.in_(incident_ids))
+        ):
+            vip_map[incident_id].append(vip_id)
+
+        item_ids = {incident.item_id for incident in incidents if incident.item_id is not None}
+        items = (
+            {row.id: row for row in self.session.execute(select(Item).where(Item.id.in_(item_ids))).scalars()}
+            if item_ids
+            else {}
+        )
+        account_ids = {incident.account_id for incident in incidents if incident.account_id is not None}
+        for incident in incidents:
+            item = items.get(incident.item_id) if incident.item_id is not None else None
+            if item is not None and item.account_id is not None:
+                account_ids.add(item.account_id)
+        accounts = (
+            {row.id: row for row in self.session.execute(select(Account).where(Account.id.in_(account_ids))).scalars()}
+            if account_ids
+            else {}
+        )
+        assignee_ids = {incident.assignee_id for incident in incidents if incident.assignee_id is not None}
+        assignees = (
+            {row.id: row for row in self.session.execute(select(User).where(User.id.in_(assignee_ids))).scalars()}
+            if assignee_ids
+            else {}
+        )
+
+        for incident in incidents:
+            item = items.get(incident.item_id) if incident.item_id is not None else None
+            account = accounts.get(incident.account_id) if incident.account_id is not None else None
+            if account is None and item is not None and item.account_id is not None:
+                account = accounts.get(item.account_id)
+            setattr(incident, "vip_ids", sorted(vip_map[incident.id], key=str))  # noqa: B010
+            setattr(incident, "item", item)  # noqa: B010
+            setattr(incident, "account", account)  # noqa: B010
+            assignee = assignees.get(incident.assignee_id) if incident.assignee_id is not None else None
+            setattr(incident, "assignee", assignee)  # noqa: B010
+        return incidents
+
     def list_incidents(
         self,
         user: User,
@@ -165,7 +212,7 @@ class IncidentService:
             rows = rows[:limit]
             last = rows[-1]
             next_cursor = _encode_cursor(sort, SEVERITY_RANKS.get(last.severity.value, 0), last.created_at, last.id)
-        return rows, next_cursor
+        return self._enrich(rows), next_cursor
 
     def get_incident(self, user: User, incident_id: uuid.UUID) -> Incident:
         incident = self.session.get(Incident, incident_id)
@@ -183,6 +230,7 @@ class IncidentService:
 
     def detail(self, user: User, incident_id: uuid.UUID) -> dict[str, Any]:
         incident = self.get_incident(user, incident_id)
+        self._enrich([incident])
         detections = list(
             self.session.execute(
                 select(Detection).where(
@@ -345,6 +393,9 @@ class IncidentService:
         return applied, errors
 
     def _publish_update(self, incident: Incident) -> None:
+        vip_ids = list(
+            self.session.execute(select(IncidentVip.vip_id).where(IncidentVip.incident_id == incident.id)).scalars()
+        )
         enqueue(
             self.session,
             INCIDENT_UPDATED,
@@ -353,6 +404,7 @@ class IncidentService:
                 "severity": incident.severity.value,
                 "status": incident.status.value,
                 "risk_score": incident.risk_score,
+                "vip_ids": [str(vip_id) for vip_id in vip_ids],
             },
         )
 

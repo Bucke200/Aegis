@@ -12,13 +12,14 @@ one codebase, one image per role, deployed with Docker Compose.
   search, vector search), RabbitMQ for work queues, MinIO for media and
   object-locked evidence.
 - **Presentation:** a FastAPI REST + WebSocket API, an alerting service
-  (email and Slack), and a React dashboard (task 9.4).
+  (email and Slack), and a React dashboard.
 
 The design, requirements, and implementation plan live in `docs/`.
 
 ## Prerequisites
 
 - Python 3.12 and [uv](https://docs.astral.sh/uv/)
+- Node.js 22 and npm 10+ for the dashboard
 - Docker with Docker Compose v2
 - GNU Make (optional; every target is a short command)
 
@@ -27,13 +28,22 @@ The design, requirements, and implementation plan live in `docs/`.
 ```bash
 cp .env.example .env      # change every "change-me" value before real use
 uv sync                   # install core and dev dependencies
-make up                   # build and start Postgres, RabbitMQ, MinIO, api, worker
+make up                   # build and start Postgres, RabbitMQ, MinIO, api, worker, frontend
 make migrate              # apply database migrations
 ```
 
-The API is then at http://localhost:8000 (health at `/health`), the RabbitMQ
-management UI at http://localhost:15672, and the MinIO console at
-http://localhost:9001.
+The API is then at http://localhost:8000 (health at `/health`), the dashboard at
+http://localhost:5173, the RabbitMQ management UI at http://localhost:15672, and
+the MinIO console at http://localhost:9001.
+
+For dashboard development, run the Vite dev server against a running API:
+
+```bash
+cd frontend
+cp .env.example .env      # VITE_API_URL, defaults to http://localhost:8000
+npm install
+npm run dev               # http://localhost:5173
+```
 
 ## Common commands
 
@@ -49,6 +59,11 @@ http://localhost:9001.
 | `make eval` | Evaluate detectors on `data/golden/` |
 | `make eval-gate` | Fail if precision or recall regressed vs `reports/eval/baseline.json` |
 | `make fetch-models` | Pre-download ML model weights into `./models` |
+| `make frontend-install` | Install dashboard dependencies (`npm ci`) |
+| `make frontend-dev` | Run the Vite dev server |
+| `make frontend-test` | Run the Vitest suite |
+| `make frontend-build` | Type-check and build the dashboard |
+| `make e2e` | Seed and run the Playwright suite against a running API |
 
 Heavy dependencies are optional groups, not part of the base install. Add them
 only when working on the matching area:
@@ -83,9 +98,11 @@ docs/           design, requirements, tasks, data-protection
 ## Testing and evaluation
 
 ```bash
-make test        # unit and smoke tests
-make eval        # per-detector, per-language report from the golden set
-make eval-gate   # regression gate used by CI
+make test           # unit and smoke tests (pytest)
+make eval           # per-detector, per-language report from the golden set
+make eval-gate      # regression gate used by CI
+make frontend-test  # Vitest component tests
+make e2e            # Playwright: login -> live incident -> assign -> note -> resolve
 ```
 
 The golden set is labelled per detector and language. Until the real detectors
@@ -94,7 +111,8 @@ report format, and the gate are exercised end to end.
 
 ## Docker images
 
-One `Dockerfile` builds four role targets, selected per Compose service:
+One `Dockerfile` builds four Python role targets, selected per Compose service,
+plus the dashboard image built from `frontend/Dockerfile`:
 
 | Target | Contents | Runs |
 |---|---|---|
@@ -102,12 +120,14 @@ One `Dockerfile` builds four role targets, selected per Compose service:
 | `analysis` | core + collectors + analysis runtime | `aegis-worker`, `aegis-normalizer` |
 | `media` | core + vision stack + ffmpeg | `aegis-media-worker` |
 | `capture` | core + Playwright/Chromium | `aegis-capture` |
+| `frontend` | Node build + nginx static `dist/` | dashboard SPA |
 
 ## CI/CD
 
-- `.github/workflows/ci.yml` — ruff, mypy, pytest, pip-audit, and Compose validation.
+- `.github/workflows/ci.yml` — ruff, mypy, pytest, pip-audit, Compose validation,
+  frontend typecheck/Vitest/build/npm-audit, and the Playwright end-to-end suite.
 - `.github/workflows/cd.yml` — after CI passes (or on a `v*` tag), builds the four
-  targets and pushes `ghcr.io/<owner>/aegis-<target>`.
+  Python targets plus `frontend` and pushes `ghcr.io/<owner>/aegis-<target>`.
 
 ## Collector policy
 

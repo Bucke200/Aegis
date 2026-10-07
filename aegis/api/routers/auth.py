@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from aegis.api import schemas
 from aegis.api.dependencies import get_current_user
 from aegis.api.security import (
     REFRESH_TOKEN_TYPE,
@@ -25,7 +26,7 @@ from aegis.api.security import (
 from aegis.common.audit import record
 from aegis.common.config import get_settings
 from aegis.common.db import get_session
-from aegis.common.models.ops import RefreshToken, User
+from aegis.common.models.ops import RefreshToken, User, UserVipScope
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -62,7 +63,7 @@ def _set_refresh_cookie(response: Response, token: str) -> None:
         value=token,
         httponly=True,
         secure=settings.refresh_cookie_secure,
-        samesite="lax",
+        samesite=settings.refresh_cookie_samesite,
         max_age=settings.refresh_token_days * 86400,
         path="/auth",
     )
@@ -151,6 +152,18 @@ def logout(
         except (TokenError, ValueError):
             pass
     response.delete_cookie(settings.refresh_cookie_name, path="/auth")
+
+
+@router.get("/me", response_model=schemas.MeResponse)
+def me(
+    user: User = Depends(get_current_user),
+    session: Session = Depends(get_session),
+) -> schemas.MeResponse:
+    scopes = list(session.execute(select(UserVipScope).where(UserVipScope.user_id == user.id)).scalars())
+    return schemas.MeResponse(
+        user=schemas.UserRead.model_validate(user),
+        scopes=[schemas.UserScopeRead.model_validate(scope) for scope in scopes],
+    )
 
 
 @router.post("/mfa/enroll", response_model=MfaEnrollResponse)

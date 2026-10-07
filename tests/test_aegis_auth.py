@@ -230,3 +230,19 @@ def test_reveal_permission_is_admin_only_and_never_for_viewers(client: TestClien
         headers=_auth(admin),
     )
     assert revoked.status_code == 204
+
+
+@DB_REQUIRED
+def test_me_returns_user_and_vip_scopes(client: TestClient, identity: dict[str, str]) -> None:
+    token = _login(client, identity["analyst_email"], "analyst-pass")
+
+    response = client.get("/auth/me", headers=_auth(token))
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["user"]["id"] == identity["analyst"]
+    assert body["user"]["role"] == "analyst"
+    assert [scope["vip_id"] for scope in body["scopes"]] == [identity["vip_a"]]
+    assert body["scopes"][0]["can_reveal_sensitive"] is False
+
+    unauthenticated = client.get("/auth/me")
+    assert unauthenticated.status_code == 401
