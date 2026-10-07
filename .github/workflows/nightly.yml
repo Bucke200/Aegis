@@ -48,13 +48,17 @@ jobs:
       - name: Run the durability suite
         run: |
           set +e
-          AEGIS_INTEGRATION=1 uv run pytest tests/test_aegis_durability.py -v --tb=short > durability-output.txt 2>&1
+          AEGIS_INTEGRATION=1 uv run pytest tests/test_aegis_durability.py -v --tb=long > durability-output.txt 2>&1
           status=$?
           cat durability-output.txt
           if [ "$status" -ne 0 ]; then
-            summary=$(grep -E "^(FAILED|ERROR|INTERNALERROR)" durability-output.txt | head -n 20 | tr '\n' ' ')
-            trailer=$(tail -n 12 durability-output.txt | tr '\n' '|')
-            echo "::error::durability suite failed (pytest exit $status): $summary tail: $trailer"
+            {
+              echo "### Durability suite output (pytest exit $status)"
+              echo '```'
+              tail -n 200 durability-output.txt
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo "::error::durability suite failed (pytest exit $status)"
           fi
           exit "$status"
       - name: Dump infrastructure logs on failure

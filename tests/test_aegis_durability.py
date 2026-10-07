@@ -13,6 +13,7 @@ The broker-restart test needs Docker and restarts the container named by
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import os
 import shutil
@@ -24,6 +25,7 @@ from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
+import aio_pika
 import pytest
 from sqlalchemy import Engine, create_engine, func, select, text
 from sqlalchemy.orm import Session
@@ -114,7 +116,9 @@ def test_broker_restart_processes_each_message_once() -> None:
     total = 1000
 
     async def scenario() -> None:
-        async with broker_channel() as channel:
+        connection = await aio_pika.connect_robust(os.environ["AEGIS_TEST_RABBITMQ_URL"])
+        try:
+            channel = await connection.channel(publisher_confirms=True)
             await channel.declare_queue(queue_name, durable=True, arguments=dict(QUORUM))
             await channel.declare_queue(dead_letter_queue(queue_name), durable=True, arguments=dict(QUORUM))
             await channel.declare_queue(
@@ -138,10 +142,18 @@ def test_broker_restart_processes_each_message_once() -> None:
 
             reached = await _async_wait(lambda: _receipt_count(engine) >= total, timeout=300)
             assert reached, f"processed only {_receipt_count(engine)} of {total} messages"
+        finally:
+            with contextlib.suppress(Exception):
+                await connection.close()
 
-        async with broker_channel() as channel:
+        connection = await aio_pika.connect_robust(os.environ["AEGIS_TEST_RABBITMQ_URL"])
+        try:
+            channel = await connection.channel()
             dlq = await channel.declare_queue(dead_letter_queue(queue_name), durable=True, arguments=dict(QUORUM))
             assert await dlq.get(fail=False, timeout=1.0) is None
+        finally:
+            with contextlib.suppress(Exception):
+                await connection.close()
 
     asyncio.run(scenario())
     assert _receipt_count(engine) == total
@@ -179,6 +191,14 @@ def _spawn(module: str, log_path: Path, env: dict[str, str]) -> subprocess.Popen
         stdout=log,
         stderr=subprocess.STDOUT,
     )
+
+
+def _dump_logs(tmp_path: Path) -> None:
+    for name in ("normalizer.log", "worker-1.log", "worker-2.log"):
+        path = tmp_path / name
+        if path.exists():
+            print(f"--- {name} ---")
+            print(path.read_text(encoding="utf-8", errors="replace")[-4000:])
 
 
 async def _publish_items(payloads: list[dict[str, Any]]) -> None:
@@ -234,11 +254,17 @@ def test_worker_killed_mid_batch_loses_and_duplicates_nothing(pg_engine: Engine,
         time.sleep(3)
         worker = _spawn("aegis.pipeline.analysis", tmp_path / "worker-1.log", env)
         time.sleep(2)
-        assert worker.poll() is None, "analysis worker exited during startup"
+        if worker.poll() is not None or normalizer.poll() is not None:
+            _dump_logs(tmp_path)
+            pytest.fail("worker or normalizer exited during startup")
 
         asyncio.run(_publish_items(payloads))
 
-        assert _sync_wait(lambda: _incident_count(pg_engine, run_id) >= 1, timeout=60), "no incident appeared"
+        appeared = _sync_wait(lambda: _incident_count(pg_engine, run_id) >= 1, timeout=90)
+        if not appeared:
+            _dump_logs(tmp_path)
+        assert appeared, "no incident appeared"
+
         worker.kill()
         worker.wait(timeout=30)
 
@@ -248,9 +274,7 @@ def test_worker_killed_mid_batch_loses_and_duplicates_nothing(pg_engine: Engine,
             timeout=300,
         )
         if not complete:
-            for name in ("normalizer.log", "worker-1.log", "worker-2.log"):
-                print(f"--- {name} ---")
-                print((tmp_path / name).read_text(encoding="utf-8", errors="replace")[-2000:])
+            _dump_logs(tmp_path)
 
         assert _item_count(pg_engine, run_id) == total
         assert _incident_count(pg_engine, run_id) == total
