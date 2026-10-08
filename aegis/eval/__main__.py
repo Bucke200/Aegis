@@ -1,8 +1,8 @@
 """Command line interface for the evaluation harness.
 
 Usage:
-    python -m aegis.eval run --golden data/golden/ --out reports/eval/
-    python -m aegis.eval gate --baseline reports/eval/baseline.json
+    python -m aegis.eval run --golden data/private/golden --out data/private/reports/eval
+    python -m aegis.eval gate --baseline data/private/reports/eval/baseline.json
 
     python -m aegis.eval generate --out data/labelling/candidates.jsonl
     python -m aegis.eval sheet
@@ -39,8 +39,8 @@ from aegis.eval.models import EvalReport
 from aegis.eval.report import REPORT_JSON, write_report
 from aegis.eval.runner import evaluate
 
-DEFAULT_GOLDEN = Path("data/golden")
-DEFAULT_OUT = Path("reports/eval")
+DEFAULT_GOLDEN = Path("data/private/golden")
+DEFAULT_OUT = Path("data/private/reports/eval")
 DEFAULT_TOLERANCE = 0.02
 
 
@@ -61,7 +61,7 @@ def build_parser() -> argparse.ArgumentParser:
     generate_parser.add_argument("--out", type=Path, default=annotate.DEFAULT_CANDIDATES)
     generate_parser.add_argument("--per-class", type=int, default=100)
     generate_parser.add_argument("--seed", type=int, default=7)
-    generate_parser.add_argument("--vip", default="Vip Sharma")
+    generate_parser.add_argument("--vip", default="Asha Example")
 
     sheet_parser = subparsers.add_parser("sheet", help="write the shuffled blind annotation sheet")
     sheet_parser.add_argument("--candidates", type=Path, default=annotate.DEFAULT_CANDIDATES)
@@ -106,10 +106,10 @@ def build_parser() -> argparse.ArgumentParser:
     cache_parser.add_argument("--force", action="store_true", help="re-fetch every labelled item")
 
     benchmark_parser = subparsers.add_parser("benchmark", help="compare Ollama models on a labelled set")
-    benchmark_parser.add_argument("--golden", type=Path, default=Path("data/labelling/golden"))
+    benchmark_parser.add_argument("--golden", type=Path, default=Path("data/private/golden"))
     benchmark_parser.add_argument("--models", required=True, help="comma-separated Ollama base models")
     benchmark_parser.add_argument("--ollama-url", default="http://localhost:11434")
-    benchmark_parser.add_argument("--out", type=Path, default=Path("reports/labelling"))
+    benchmark_parser.add_argument("--out", type=Path, default=Path("data/private/reports/labelling"))
 
     return parser
 

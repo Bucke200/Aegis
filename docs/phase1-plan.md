@@ -25,7 +25,8 @@ explicitly deferred until a real LLM provider is chosen.
 
 ### Two sets with different jobs (Q1/Q5)
 
-- **Gate set** (committed under `data/golden/`): 1,800 synthetic, human-confirmed
+- **Gate set** (committed to the private `Aegis-data` repository, cloned to
+  `data/private/golden/`): 1,800 synthetic, human-confirmed
   items, plus mechanically labelled synthetic impersonation and leak sets.
   Doxxing items use fake PII. Synthetic text is acceptable here because the gate
   only detects drift.
@@ -42,8 +43,9 @@ confirmed. That is why the two sets are separate.
 1. Schema: `GoldenItem` gains `provenance`, `intended_label`, `blind_label`,
    `final_label`, `annotator`, `reviewer`, `reviewed_at`, `edge_case`,
    `generator_model`, `guideline_version`; existing smoke set stays loadable.
-2. Layout: `data/golden/intent/{en,hi,hi-Latn}.jsonl`, `data/golden/impersonation/`,
-   `data/golden/leaks/`; work products in gitignored `data/labelling/`.
+2. Layout: `data/private/golden/intent/{en,hi,hi-Latn}.jsonl`,
+   `data/private/golden/impersonation/`, `data/private/golden/leaks/`; work
+   products in gitignored `data/labelling/`.
 3. Tooling: `python -m aegis.eval {generate,sheet,import,stats,sample,merge}`.
    `sheet` hides the intended label, shuffles rows, and writes UTF-8 with a BOM
    so Excel renders Devanagari. See `docs/annotation-guidelines.md` for the
@@ -106,7 +108,7 @@ phone formats) lands before the pilot.
 - `aegis/eval/candidates.py`: seeded generator, 6 classes x 3 languages,
   template banks, edge-case quotas, fake PII for doxxing.
 - `python -m aegis.eval {generate,sheet,import,stats,sample,merge}` per
-  section C3; `load_golden` reads only `data/golden/`.
+  section C3; `load_golden` reads only the canonical golden subfolders.
 - Pilot: 180 items, blind labels, second pass as designed, exit report in
   `reports/labelling/pilot.md` (produced by the annotator lead).
 - Reword `docs/tasks.md` task 4.3 to describe this two-set, blind, kappa-gated
@@ -145,7 +147,7 @@ for the pilot labels; the WSL migration repeats the Ollama build steps.
 - Model benchmark after the pilot: compare valid-JSON rate, threat/non-threat
   F1 per language, items per second, and `ollama ps` GPU share; switch only on
   evidence.
-- Regenerate `reports/eval/baseline.json`; `make eval` / `make eval-gate`
+- Regenerate `data/private/reports/eval/baseline.json`; `make eval` / `make eval-gate`
   exercise it. Mark task 4.3 done; Phase 1 closes here.
 
 ## 4. RTX 3050 (4 GB) settings

@@ -5,14 +5,16 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 from aegis.eval.__main__ import main
 from aegis.eval.dataset import load_golden
 from aegis.eval.detectors import keyword_smoke
 from aegis.eval.gate import compare_reports
-from aegis.eval.models import EvalReport, Metrics
+from aegis.eval.models import EvalReport, GoldenItem, Metrics
 from aegis.eval.runner import compute_metrics, evaluate
 
-GOLDEN = Path("data/golden")
+GOLDEN = Path("data/smoke")
 
 
 def make_report(precision: float, recall: float) -> EvalReport:
@@ -29,6 +31,44 @@ def test_load_golden_synthetic() -> None:
     assert len(items) == 27
     assert len({item.id for item in items}) == 27
     assert {item.language for item in items} == {"en", "hi", "hi-Latn"}
+
+
+def _write_item(path: Path, item_id: str = "a", text: str = "hello") -> None:
+    item = GoldenItem(id=item_id, language="en", text=text, labels={"keyword_smoke": False}, intent="none")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(item.model_dump_json() + "\n", encoding="utf-8")
+
+
+def test_load_golden_reads_only_canonical_subfolders(tmp_path: Path) -> None:
+    _write_item(tmp_path / "intent" / "en.jsonl")
+    _write_item(tmp_path / "impersonation" / "en.jsonl", item_id="b")
+    (tmp_path / "caches").mkdir()
+    (tmp_path / "caches" / "llm_cache.jsonl").write_text("{}\n", encoding="utf-8")
+    (tmp_path / "stray.jsonl").write_text("{}\n", encoding="utf-8")
+    assert [item.id for item in load_golden(tmp_path)] == ["a", "b"]
+
+
+def test_load_golden_rejects_directory_without_golden_subfolders(tmp_path: Path) -> None:
+    (tmp_path / "stray.jsonl").write_text("{}\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="no golden subfolder"):
+        load_golden(tmp_path)
+
+
+def test_load_golden_rejects_file_outside_golden_subfolders(tmp_path: Path) -> None:
+    path = tmp_path / "stray.jsonl"
+    path.write_text("{}\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="golden files must live under"):
+        load_golden(path)
+
+
+def test_load_golden_error_does_not_echo_text(tmp_path: Path) -> None:
+    secret = "SHOULD-NOT-APPEAR-IN-ERRORS"
+    path = tmp_path / "intent" / "en.jsonl"
+    path.parent.mkdir()
+    path.write_text(json.dumps({"id": "x", "text": secret}), encoding="utf-8")
+    with pytest.raises(ValueError, match="invalid golden item") as excinfo:
+        load_golden(tmp_path)
+    assert secret not in str(excinfo.value)
 
 
 def test_compute_metrics() -> None:

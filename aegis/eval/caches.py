@@ -1,13 +1,14 @@
-"""Committed detector caches for reproducible, cheap evaluation.
+"""Private detector caches for reproducible, cheap evaluation.
 
-CI has no GPU and no model weights, so ``text_intent_llm`` and
-``text_toxicity`` are evaluated from committed caches. The LLM cache key is the
+CI has no GPU and no model weights, so ``text_intent_llm`` and ``text_toxicity``
+are evaluated from caches stored in the private ``Aegis-data`` checkout
+(``data/private/caches/``, cloned by ``make data``). The LLM cache key is the
 model digest (read from Ollama's ``/api/tags``), the prompt version, and the
 text hash. A missing entry fails the run loudly.
 
 Refresh (local, once per model or prompt change):
 
-    python -m aegis.eval cache --golden data/golden --llm --toxicity \
+    python -m aegis.eval cache --golden data/private/golden --llm --toxicity \
         --model aegis-intent --ollama-url http://localhost:11434
 """
 
@@ -23,10 +24,10 @@ import httpx
 from pydantic import BaseModel
 
 from aegis.detectors.intent import PROMPT_VERSION, IntentClassifier
-from aegis.eval.models import GoldenItem
+from aegis.eval.models import GoldenItem, validation_summary
 
-DEFAULT_LLM_CACHE = Path("data/golden/llm_cache.jsonl")
-DEFAULT_TOXICITY_CACHE = Path("data/golden/toxicity_cache.jsonl")
+DEFAULT_LLM_CACHE = Path("data/private/caches/llm_cache.jsonl")
+DEFAULT_TOXICITY_CACHE = Path("data/private/caches/toxicity_cache.jsonl")
 
 
 class CachedEntry(BaseModel):
@@ -73,7 +74,7 @@ def _load_entries[EntryT: CachedEntry](path: Path, model: type[EntryT]) -> dict[
         try:
             entry = model.model_validate_json(line)
         except ValueError as error:
-            raise ValueError(f"{path}:{line_number}: invalid cache entry: {error}") from error
+            raise ValueError(f"{path}:{line_number}: invalid cache entry: {validation_summary(error)}") from None
         entries[entry.text_sha256] = entry
     return entries
 

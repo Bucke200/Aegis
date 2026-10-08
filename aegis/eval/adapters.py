@@ -1,8 +1,9 @@
 """Detector adapters that make the real detectors evaluable.
 
 ``text_lexicon`` runs directly (core dependency). ``text_intent_llm`` and
-``text_toxicity`` read the committed caches so CI can evaluate them without a
-GPU or model weights; a missing entry fails the run loudly.
+``text_toxicity`` read the private caches in ``data/private/caches/`` (the
+``Aegis-data`` checkout, cloned by ``make data``) so CI can evaluate them without
+a GPU or model weights; a missing entry fails the run loudly.
 """
 
 from __future__ import annotations

@@ -153,6 +153,37 @@ jobs:
       - name: pip-audit
         run: uv run --with pip-audit pip-audit
 
+  eval:
+    name: Evaluation
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
+    env:
+      AEGIS_DATA_DEPLOY_KEY: ${{ secrets.AEGIS_DATA_DEPLOY_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v7
+        with:
+          version: ${{ env.UV_VERSION }}
+          python-version: ${{ env.PYTHON_VERSION }}
+          enable-cache: true
+      - name: Install dependencies
+        run: uv sync --frozen
+      - name: Check out the private Aegis-data repository
+        if: env.AEGIS_DATA_DEPLOY_KEY != ''
+        uses: actions/checkout@v4
+        with:
+          repository: Bucke200/Aegis-data
+          ssh-key: ${{ secrets.AEGIS_DATA_DEPLOY_KEY }}
+          path: data/private
+          persist-credentials: false
+      - name: Smoke evaluation (public)
+        run: make eval-smoke
+      - name: Golden-set evaluation and gate (private)
+        if: hashFiles('data/private/reports/eval/baseline.json') != ''
+        run: |
+          make eval
+          make eval-gate
+
   frontend:
     name: Frontend
     runs-on: ubuntu-latest

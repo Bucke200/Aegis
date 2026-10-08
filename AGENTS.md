@@ -23,7 +23,9 @@ make lint               # ruff check, ruff format --check, mypy aegis
 make test               # pytest (Postgres/RabbitMQ tests skip without env)
 make up / make down     # local stack (Postgres, RabbitMQ, MinIO, api, workers, frontend)
 make migrate            # Alembic migrations
+make data               # clone/update the private Aegis-data checkout (golden set, caches)
 make eval / make eval-gate
+make eval-smoke         # evaluation on the public smoke set
 make frontend-install / frontend-test / frontend-build
 make e2e                # Playwright (API must be running)
 ```
@@ -38,7 +40,8 @@ use `npm` from that directory.
   `AEGIS_TEST_DATABASE_URL`; RabbitMQ tests use `AEGIS_TEST_RABBITMQ_URL`.
 - Do not add comments unless asked. Follow existing patterns in neighboring files.
 - Never commit secrets or `.env`; never commit real personal data or real
-  threat text (the golden reality set stays local-only).
+  threat text (golden sets, caches, and text-bearing reports live in the private
+  `Aegis-data` repository, cloned to gitignored `data/private/` by `make data`).
 - Do not commit unless the user explicitly asks.
 
 ## Key layout
@@ -51,4 +54,4 @@ use `npm` from that directory.
 - `aegis/api` - FastAPI app, services, routers, admin CLI
 - `aegis/eval` - golden-set harness, report, gate
 - `frontend/` - dashboard SPA
-- `migrations/`, `deploy/`, `data/golden/`, `reports/eval/`, `docs/`
+- `migrations/`, `deploy/`, `data/smoke/`, `data/private/` (Aegis-data checkout), `docs/`
