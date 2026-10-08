@@ -50,8 +50,11 @@ confirmed. That is why the two sets are separate.
    full workflow.
 4. Metrics: per-class confusion matrix per language and binary threat/non-threat
    precision and recall (what the scorer consumes) are mandatory. The gate checks
-   aggregates per detector per language only; per-class numbers are report-only,
-   because a 100-item cell has roughly +/-8 noise.
+   aggregates per detector per language only; per-class numbers are report-only.
+   The template generator gave only 4 distinct sentence cores per class and
+   language, so a 100-row cell carried roughly 4 independent samples and far more
+   than the originally assumed +/-8 noise. The bank expansion fixes this before
+   the pilot; do not gate on per-class cells.
 5. Smoke set: keep `synthetic_v1.jsonl` for harness tests; golden v2 lands beside it.
 6. Calibration artifact (when fitting): store model ID, prompt version, fit-set
    hash, and assumed class prior. Fall back to identity if the model or prompt
@@ -88,6 +91,13 @@ locally on Windows (section 6); task 3.1 is marked done.
 Status: tooling implemented on `phase1-annotation` (guidelines, `GoldenItem` v2,
 candidate generator, annotate CLI, agreement stats, merge validation, tests).
 The 180-item pilot itself is a human labelling step and is pending.
+
+The template-only generator was found to carry only 4 distinct sentence cores per
+class and language, expanded into near-duplicate rows by 5 prefixes x 10 suffixes
+(one VIP name, valid-format phone numbers). A pilot on that text would produce a
+trivially high kappa and near-zero information per human hour. The bank expansion
+(multi-model and hand-written drafts, deduplicated, fictional names, invalid
+phone formats) lands before the pilot.
 
 - `docs/annotation-guidelines.md`: six classes, the four hard-boundary drafts to
   ratify in the pilot, satire/quote/news handling, doxxing fake-PII rule, blind
@@ -173,7 +183,13 @@ Windows side (done):
 - [ ] After the WSL smoke test passes, rename `C:\projects\Aegis` to
       `C:\projects\Aegis.old` and delete it a week later.
 
-WSL2 side (pending):
+WSL2 side (pending). Verified 2026-10-08 from the Windows host: Ubuntu-22.04
+exists but is stopped; `systemd` runs; `/usr/lib/wsl/lib/nvidia-smi` sees the
+3050; no `.wslconfig` exists. Gaps to fix during the migration: no native Node 22
+(`npm` resolves to `/mnt/c/Program Files/nodejs`, which would build Windows
+binaries into `node_modules`), no `ollama`, Python 3.10 (the project needs 3.12),
+`uv` installed for root only, and the `docker` CLI resolves to the Windows Docker
+Desktop exe, so Docker Desktop's WSL integration is not enabled for Ubuntu-22.04.
 
 1. `%UserProfile%\.wslconfig`: `memory=10GB`, `swap=4GB`; then `wsl --shutdown`.
 2. Docker Desktop -> Settings -> Resources -> WSL integration -> `Ubuntu-22.04`.
@@ -255,6 +271,11 @@ Bugs found by the live run and fixed (PR `phase1-local-verify`):
   the real provider is chosen.
 - Licences: `qwen2.5:3b` is research-only; `llama3.2` and `gemma3` have community
   terms. Fine for dev benchmarking; production self-hosting needs review.
+- The template generator produced only 4 distinct sentence cores per class and
+  language, used one VIP name that matches real people, and used valid-format
+  Indian mobile numbers. The bank expansion replaces the first, and the fictional
+  roster and invalid phone formats replace the rest; the old values remain in
+  public git history, and no history rewrite is planned.
 - `docs/data-protection.md` (task 19.3) does not exist yet; real text must stay
   out of the repository until retention and PII handling are documented.
 - Task 6.2's media fork stays in Phase 2; it needs the real media worker (14.1/14.2).
