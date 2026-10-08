@@ -47,7 +47,7 @@ Ordering principle: build a thin end-to-end slice first. The slice is replay dat
   - _Requirements: 13.3_
 
 - [ ] 3. Messaging backbone
-- [ ] 3.1 Set up RabbitMQ topology and worker base classes
+- [x] 3.1 Set up RabbitMQ topology and worker base classes
   - Declare quorum queues `items.raw`, `items.normalized`, `media.analyze`, `media.analyzed`, `evidence.capture`, `analysis.account_embedded`; the `events.incidents` and `events.accounts` topic exchanges and the `events.config` fanout exchange (per-instance exclusive queues for cache invalidation plus the shared durable `config.recompute` queue); delayed-retry queues; a DLQ per queue; `items.normalized` is a classic durable queue with `x-max-priority: 2` for manual/incident priority (quorum queues do not support priorities)
   - Implement producer (publisher confirms) and consumer (ack after DB commit, bounded retries with backoff, then DLQ) base classes
   - Build a DLQ inspection and re-drive CLI
