@@ -36,6 +36,11 @@ DRAFT_TEMPERATURE = 0.9
 DRAFT_TOP_P = 0.95
 DRAFT_MAX_TOKENS = 160
 DEFAULT_MODELS = ("llama3.2:3b", "qwen2.5:3b", "gemma3:4b")
+DEFAULT_MODEL_LANGUAGES: dict[str, tuple[str, ...]] = {
+    "llama3.2:3b": ("en",),
+    "qwen2.5:3b": ("en",),
+    "gemma3:4b": ("en", "hi", "hi-Latn"),
+}
 LANGUAGES = ("en", "hi", "hi-Latn")
 
 LANGUAGE_INSTRUCTIONS = {
@@ -226,11 +231,13 @@ async def run_drafting(
     attempts_per_model: int = 6,
     ollama_url: str = "http://localhost:11434",
     seed: int = 7,
+    model_languages: dict[str, tuple[str, ...]] | None = None,
 ) -> DraftStats:
     """Draft until each (model, cell) has ``target_per_model`` accepted items."""
 
     context: list[BankItem] = load_bank(bank_dir) if bank_dir.exists() else []
     drafts = [item for item in context if item.drafter not in (DRAFTER_HAND, DRAFTER_TEMPLATE)]
+    allowed_languages = model_languages or DEFAULT_MODEL_LANGUAGES
     stats = DraftStats()
     if stats_path.exists():
         try:
@@ -248,14 +255,20 @@ async def run_drafting(
 
     async with httpx.AsyncClient(timeout=180.0) as client:
         for model in models:
+            model_langs = allowed_languages.get(model, LANGUAGES)
             for language in LANGUAGES:
+                if language not in model_langs:
+                    continue
                 names = vip_roster[language]
                 for label in INTENT_LABELS:
                     cell = cell_key(language, label)
                     have = sum(
                         1
                         for item in drafts
-                        if item.drafter == model and item.language == language and item.intended_label == label
+                        if item.drafter == model
+                        and item.language == language
+                        and item.intended_label == label
+                        and not item_issues(item)
                     )
                     for attempt in range(attempts_per_model):
                         if have >= target_per_model:
