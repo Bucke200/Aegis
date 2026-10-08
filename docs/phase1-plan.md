@@ -90,16 +90,25 @@ locally on Windows (section 6); task 3.1 is marked done.
 
 ### Workstream 2 - Annotation infrastructure and blind pilot
 
-Status: tooling implemented on `phase1-annotation` (guidelines, `GoldenItem` v2,
-candidate generator, annotate CLI, agreement stats, merge validation, tests).
-The 180-item pilot itself is a human labelling step and is pending.
+Status: pilot complete. Tooling (guidelines, `GoldenItem` v2, bank sampling,
+annotate CLI, agreement stats, merge validation, tests) plus the draft bank
+(hand-written entries and gated multi-model drafts) are in place. Recorded
+deviations: the first pass was model-assisted with the intended class visible in
+the sheet ids (both fixed; ids are now opaque), so the 0.9042 (ambiguous
+excluded) kappa is not human inter-annotator agreement; the 39-row blind review
+is the human check. The pilot report lives in the private `Aegis-data`
+repository. The ratified `v1` boundary rules replace the pilot drafts in
+`docs/annotation-guidelines.md` section 4.
 
 The template-only generator was found to carry only 4 distinct sentence cores per
 class and language, expanded into near-duplicate rows by 5 prefixes x 10 suffixes
 (one VIP name, valid-format phone numbers). A pilot on that text would produce a
 trivially high kappa and near-zero information per human hour. The bank expansion
 (multi-model and hand-written drafts, deduplicated, fictional names, invalid
-phone formats) lands before the pilot.
+phone formats) replaces it. Model drafting is now gated: `llama3.2:3b` and
+`qwen2.5:3b` draft English only, and a coherence check rejects threat-class
+drafts without a harm or PII signal; the eight cells over the 10% unusable line
+passed the redraft acceptance test at 0% unusable.
 
 - `docs/annotation-guidelines.md`: six classes, the four hard-boundary drafts to
   ratify in the pilot, satire/quote/news handling, doxxing fake-PII rule, blind
@@ -268,6 +277,12 @@ Bugs found by the live run and fixed (PR `phase1-local-verify`):
 ## 7. Deferred and known weaknesses
 
 - Reality set (~300 real items) and calibrator fitting wait for the real provider.
+- The first pilot pass is not human agreement: it was model-assisted and the
+  intended class was visible in the sheet ids. Ids are opaque now; the 39-row
+  blind review is the human check, and the pilot report records the deviation.
+- Small local models drift toward generic criticism in hi and hi-Latn: gating and
+  a coherence check mitigate it, but the coherence heuristic (harm terms plus the
+  lexicon) cannot judge tone; treat its drops as review candidates.
 - A 3B model's self-reported probabilities are coarse (0/1-style outputs): this
   baseline is a plumbing and drift check, not an accuracy claim; regenerate when
   the real provider is chosen.
