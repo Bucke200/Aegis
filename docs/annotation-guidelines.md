@@ -1,8 +1,9 @@
 # Annotation Guidelines
 
-Version: draft for the blind 180-item pilot (`guideline_version = v1-pilot`).
-These rules are ratified or amended at the end of the pilot; every amendment
-bumps the version and triggers relabelling of affected pilot items.
+Version: `v1`, ratified after the 180-item pilot (`guideline_version = v1`).
+Amendments bump the version; the pilot ran under the `v1-pilot` drafts, and the
+incitement and precedence clauses changed materially at ratification (see the
+pilot report in the private `Aegis-data` repository).
 
 ## 1. Purpose and the two sets
 
@@ -51,27 +52,45 @@ disliking something is not a threat, and anger alone is not a threat.
 - The `import` command rejects any label outside the six classes plus
   `ambiguous` and `unusable` (and `discard` for reviewers).
 
-## 4. Hard boundaries (draft; ratified in the pilot)
+## 4. Hard boundaries (ratified `v1`)
 
-These four boundaries decide the pilot. The pilot produces one written rule
-per boundary in this section, replacing these drafts.
+These rules were ratified at the end of the 180-item pilot.
 
-1. **Criticism vs harassment.** Attack the argument, not the person. Policy
-   disagreement, performance criticism, and negative opinion are `criticism`.
-   Insults, slurs, humiliation, or sustained personal hostility are
-   `harassment`, even when wrapped in a political point.
+1. **Criticism vs harassment.** Attack the argument, not the person.
+   - An insult or demeaning epithet aimed at the person makes it `harassment`,
+     even when a policy complaint is attached.
+   - Harsh words about the policy or conduct ("stupid plan") stay `criticism`.
+   - Insults aimed at someone other than the named person are not `harassment`
+     of that person.
 2. **Harassment vs violent_threat.** Harassment wants the person to feel bad or
-   go away; a violent threat wants them harmed. Wishes ("someone should kill
-   X"), conditional threats ("if X comes here..."), and stated intent are
-   `violent_threat`. Abuse without any harm statement is `harassment`.
-3. **Incitement vs violent_threat.** A threat is the author acting; incitement
-   is the author recruiting others ("everyone should...", "let's..."). A
-   first-person threat that also calls others to act is labelled by the
-   author's own commitment: `violent_threat`.
-4. **Quoted or reported threats.** Reporting someone else's threat is not the
-   author's threat. Quotes, screenshots, news reporting, and "look what he
-   said" are `none` unless the author endorses, amplifies, or urges the act --
-   then label by the endorsement (`incitement` or `violent_threat`).
+   go away; a violent threat wants them harmed.
+   - An impersonal wish ("should be stabbed", "someone should shoot") is
+     `violent_threat`.
+   - Covers threats against the person's home, office, or convoy, not only
+     their body.
+   - Abuse without any harm statement is `harassment`.
+3. **Incitement vs violent_threat.**
+   - An addressed call ("brothers", "everyone", "let's", an imperative) is
+     `incitement`; an impersonal wish is `violent_threat`.
+   - "Teach a lesson" or "make an example" is `incitement` only with a concrete
+     cue: a time, a place, a weapon, or a crowd address. Without one it is
+     `ambiguous` and goes to the reviewer.
+   - Physical mobilisation against the person (march on the office, block the
+     convoy) is `incitement`. Calls for legal or accountability action ("arrest
+     him", "answer questions", "step down") are `criticism`.
+   - A first-person threat that also recruits others is labelled by the
+     author's own commitment: `violent_threat`.
+4. **Quoted or reported threats.**
+   - `none` requires attribution to someone else ("he said", "police said",
+     "was threatened").
+   - An unattributed announcement ("a plan to hurt her is set") is
+     `violent_threat`.
+   - Reporting is `none` unless the author endorses or amplifies the act; then
+     label by the endorsement.
+5. **Precedence when two labels fit.** Apply in order: `doxxing`,
+   `violent_threat`, `incitement`, `harassment`, `criticism`, `none`. Doxxing
+   wins whenever private data is present, because the leak is the actionable
+   harm; "find her at this address tonight" is `doxxing`.
 
 ## 5. Edge cases
 
@@ -152,12 +171,16 @@ private `Aegis-data` repository (cloned by `make data`).
 
 ## 9. Pilot and target
 
-- **Pilot:** 10 candidates per class per language (180 items). Exit criteria:
-  measured seconds per item, kappa >= 0.7, and one written rule per hard
-  boundary in section 4.
+- **Pilot:** completed on 180 items (10 per class per language) with two
+  recorded deviations: the first pass was model-assisted and the sheet ids
+  exposed the intended class, and no human seconds-per-item figure exists. The
+  human check is the 39-row review pass weighted to model drafts and every
+  disagreement; kappa on the stated basis (ambiguous excluded) was 0.9042, and
+  the eight flagged cells passed the redraft acceptance test at 0% unusable.
+  Details in the private pilot report.
 - **Gate set target:** 100 per class per language (1,800 items), expandable to
-  the design target of 300+ later.
-- **Estimate:** ~20 s/item => ~10 h for the annotator, 3-4 h for the reviewer.
+  the design target of 300+ later, drafted under these `v1` rules.
+- **Estimate:** ~20 s/item => ~10 h for an annotator, 3-4 h for the reviewer.
 
 ## 10. Provenance
 
