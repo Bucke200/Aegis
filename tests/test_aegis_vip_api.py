@@ -238,7 +238,7 @@ def test_reference_media_upload_stores_hashes(client: TestClient, fake_storage: 
 @DB_REQUIRED
 def test_fingerprint_registration_stores_only_hashes(client: TestClient, pg_engine, caplog) -> None:
     vip_id = _create_vip(client, "Vip Fingerprints")
-    value = "+91 90000 00001"
+    value = "+91 50000 00001"
 
     with caplog.at_level("DEBUG"):
         response = client.post(
@@ -251,7 +251,7 @@ def test_fingerprint_registration_stores_only_hashes(client: TestClient, pg_engi
     assert "salted_hash" not in body
     assert value not in response.text
     assert value not in caplog.text
-    assert "9000000001" not in caplog.text
+    assert "5000000001" not in caplog.text
 
     with Session(pg_engine) as session:
         stored = session.execute(select(SensitiveFingerprint).where(SensitiveFingerprint.vip_id == vip_id)).scalar_one()
@@ -259,8 +259,8 @@ def test_fingerprint_registration_stores_only_hashes(client: TestClient, pg_engi
             select(AuditLog.details).where(AuditLog.target == vip_id, AuditLog.action == "vip.fingerprint_added")
         ).scalar_one()
         service = FingerprintService(session)
-        assert service.matches(uuid.UUID(vip_id), "+919000000001", FingerprintKind.PHONE)
-        assert not service.matches(uuid.UUID(vip_id), "+919000000002", FingerprintKind.PHONE)
+        assert service.matches(uuid.UUID(vip_id), "+915000000001", FingerprintKind.PHONE)
+        assert not service.matches(uuid.UUID(vip_id), "+915000000002", FingerprintKind.PHONE)
 
     assert stored.salted_hash != value
     assert stored.salt_id == "default"

@@ -35,7 +35,7 @@ GOOD: dict[str, Any] = {
         "doxxing": 0.02,
     },
     "solicitation": "none",
-    "target_vip": "Vip Sharma",
+    "target_vip": "Asha Example",
     "specificity": {"location": "office", "time": "tomorrow", "method": None},
     "rationale": "Explicit threat with time and place",
     "spans": [{"text": "kill him tomorrow"}],
@@ -74,7 +74,7 @@ class FakeClient:
 
 def test_threat_prob_sums_only_threat_labels() -> None:
     classifier = IntentClassifier(FakeClient([GOOD]))
-    classification = asyncio.run(classifier.classify("text", ["Vip Sharma"]))
+    classification = asyncio.run(classifier.classify("text", ["Asha Example"]))
     assert classification.threat_prob == pytest.approx(0.97)
 
     detection = classifier.to_detection(classification)
@@ -139,7 +139,7 @@ def test_budget_refusal_degrades_without_calling_the_provider() -> None:
 def test_string_spans_are_normalised_to_fragments() -> None:
     payload = {**GOOD, "spans": ["kill him tomorrow", {"text": "with a gun", "category": "weapons"}]}
     classifier = IntentClassifier(FakeClient([payload]))
-    classification = asyncio.run(classifier.classify("text", ["Vip Sharma"]))
+    classification = asyncio.run(classifier.classify("text", ["Asha Example"]))
 
     assert classification.spans == [
         {"text": "kill him tomorrow"},

@@ -22,7 +22,7 @@ from aegis.common.schemas import ItemV1, compute_dedup_key
 NAMESPACE = uuid.UUID("6f9619ff-8b86-d011-b42d-00c04fc964ff")
 CONFUSABLES = {"o": "\u043e", "a": "\u0430", "e": "\u0435", "i": "\u0456", "p": "\u0440"}
 FAKE_UPI = "vip.payments@fakeupi"
-FAKE_PHONE = "+91 90000 00001"
+FAKE_PHONE = "+91 50000 00001"
 FAKE_AADHAAR = "1111 2222 3333"
 
 
@@ -34,8 +34,8 @@ class SyntheticConfig:
     leaks: int = 3
     hinglish_threats: int = 5
     criticism: int = 5
-    vip_name: str = "Vip Sharma"
-    official_handle: str = "vip_sharma"
+    vip_name: str = "Asha Example"
+    official_handle: str = "asha_example"
     base_time: datetime = datetime(2026, 9, 30, 12, 0, tzinfo=UTC)
 
 

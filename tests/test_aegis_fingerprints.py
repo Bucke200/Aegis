@@ -19,10 +19,10 @@ from aegis.common.models.enums import FingerprintKind
 
 
 def test_phone_normalization() -> None:
-    assert normalize_phone("9000000001") == "+919000000001"
-    assert normalize_phone("+91 90000 00001") == "+919000000001"
-    assert normalize_phone("09000000001") == "+919000000001"
-    assert normalize_phone("919000000001") == "+919000000001"
+    assert normalize_phone("5000000001") == "+915000000001"
+    assert normalize_phone("+91 50000 00001") == "+915000000001"
+    assert normalize_phone("05000000001") == "+915000000001"
+    assert normalize_phone("915000000001") == "+915000000001"
 
 
 def test_phone_normalization_rejects_garbage() -> None:
@@ -49,8 +49,8 @@ def test_normalize_dispatch() -> None:
 def test_hash_is_deterministic_and_salt_dependent() -> None:
     salt_a = Salt("a", "secret-a")
     salt_b = Salt("b", "secret-b")
-    assert hash_value("+919000000001", salt_a) == hash_value("+919000000001", salt_a)
-    assert hash_value("+919000000001", salt_a) != hash_value("+919000000001", salt_b)
+    assert hash_value("+915000000001", salt_a) == hash_value("+915000000001", salt_a)
+    assert hash_value("+915000000001", salt_a) != hash_value("+915000000001", salt_b)
 
 
 def test_active_salts_includes_previous() -> None:
@@ -66,9 +66,9 @@ def test_active_salts_includes_previous() -> None:
 
 
 def test_plaintext_is_never_logged(caplog) -> None:
-    value = "+91 90000 00001"
+    value = "+91 50000 00001"
     with caplog.at_level("DEBUG"):
         normalized = normalize_value(value, FingerprintKind.PHONE)
         hash_value(normalized, Salt("x", "secret"))
     assert value not in caplog.text
-    assert "9000000001" not in caplog.text
+    assert "5000000001" not in caplog.text

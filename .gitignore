@@ -72,13 +72,17 @@ Thumbs.db
 logs/
 *.log
 
-# Evaluation outputs (baseline.json is committed)
-reports/eval/report.json
-reports/eval/report.md
+# Evaluation outputs (private: baseline lives in the Aegis-data checkout)
+reports/eval/
+reports/labelling/
 
 # Generated datasets
 data/synthetic/
 data/labelling/
+
+# Private evaluation data (Aegis-data checkout; cloned by `make data`)
+data/private/
+data/golden/
 
 # Model weights cache (repository root only)
 /models/

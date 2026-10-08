@@ -7,7 +7,7 @@ Flow:
     import    -> validated labels JSONL per annotator
     stats     -> intended-vs-blind agreement (Cohen's kappa)
     sample    -> review sheet: disagreements, ambiguous items, and a random slice
-    merge     -> validated golden items under data/golden/intent/
+    merge     -> validated golden items under data/private/golden/intent/
 
 The reviewer's label is final where present; ``discard`` drops an item; an
 item only enters the golden set with a blind label that either matches the
@@ -40,7 +40,7 @@ DEFAULT_SHEET = Path("data/labelling/sheet.csv")
 DEFAULT_ANNOTATED = Path("data/labelling/annotated.jsonl")
 DEFAULT_REVIEW_SHEET = Path("data/labelling/review-sheet.csv")
 DEFAULT_REVIEWED = Path("data/labelling/reviewed.jsonl")
-DEFAULT_GOLDEN_DIR = Path("data/golden/intent")
+DEFAULT_GOLDEN_DIR = Path("data/private/golden/intent")
 
 
 class LabelRecord(BaseModel):
@@ -91,7 +91,7 @@ def run_generate(
     out: Path = DEFAULT_CANDIDATES,
     per_class: int = 100,
     seed: int = 7,
-    vip: str = "Vip Sharma",
+    vip: str = "Asha Example",
 ) -> Path:
     return write_candidates(generate_candidates(per_class=per_class, seed=seed, vip=vip), out)
 

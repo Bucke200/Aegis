@@ -126,7 +126,7 @@ def test_merge_requires_review_and_writes_golden(tmp_path: Path) -> None:
             candidates=candidates,
             annotated=annotated,
             reviewed=[],
-            out_dir=tmp_path / "golden",
+            out_dir=tmp_path / "intent",
         )
 
     required = review_sample_ids(candidates, annotated, fraction=0.25, seed=7)
@@ -142,13 +142,13 @@ def test_merge_requires_review_and_writes_golden(tmp_path: Path) -> None:
         candidates=candidates,
         annotated=annotated,
         reviewed=reviewed,
-        out_dir=tmp_path / "golden",
+        out_dir=tmp_path / "intent",
         guideline_version="v1-test",
     )
     assert summary["written"] == len(candidates) - 1
     assert summary["dropped"] == 1
 
-    loaded = load_golden(tmp_path / "golden")
+    loaded = load_golden(tmp_path / "intent")
     assert len(loaded) == len(candidates) - 1
     assert discard_id not in {item.id for item in loaded}
     for item in loaded:
@@ -168,7 +168,7 @@ def test_merge_rejects_missing_blind_labels(tmp_path: Path) -> None:
             candidates=candidates,
             annotated=annotated,
             reviewed=[],
-            out_dir=tmp_path / "golden",
+            out_dir=tmp_path / "intent",
         )
     assert "no blind label" in str(error.value)
 
@@ -179,7 +179,7 @@ def test_cli_generate_sheet_import_stats_merge(tmp_path: Path) -> None:
     annotated_path = tmp_path / "annotated.jsonl"
     review_sheet_path = tmp_path / "review-sheet.csv"
     reviewed_path = tmp_path / "reviewed.jsonl"
-    golden_dir = tmp_path / "golden"
+    golden_dir = tmp_path / "intent"
 
     assert main(["generate", "--out", str(candidates_path), "--per-class", "2"]) == 0
     assert main(["sheet", "--candidates", str(candidates_path), "--out", str(sheet_path)]) == 0

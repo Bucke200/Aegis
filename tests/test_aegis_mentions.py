@@ -71,23 +71,23 @@ def _loaded_item(session: Any, item_id: str) -> Item:
 
 
 def test_normalization_helpers() -> None:
-    assert normalize_text("Vip_Sharma") == "vipsharma"
+    assert normalize_text("Asha_Example") == "ashaexample"
     assert skeleton("v\u0456p") == "vip"
     assert collapse_doubles("maar") == "mar"
     assert transliterate_devanagari("\u092e\u093e\u0930") == "mar"
 
 
 def test_exact_alias_match() -> None:
-    config = VipConfig(VIP_A, (_alias(VIP_A, "Vip Sharma"),), frozenset())
-    matches = _resolver(config).resolve("I saw Vip Sharma today")
+    config = VipConfig(VIP_A, (_alias(VIP_A, "Asha Example"),), frozenset())
+    matches = _resolver(config).resolve("I saw Asha Example today")
     assert len(matches) == 1
     assert matches[0].match_confidence == 1.0
     assert matches[0].match_source == MatchSource.ALIAS
 
 
 def test_homoglyph_match_uses_normalized_confidence() -> None:
-    config = VipConfig(VIP_A, (_alias(VIP_A, "vip_sharma"),), frozenset())
-    matches = _resolver(config).resolve("follow v\u0456p_sharma now")
+    config = VipConfig(VIP_A, (_alias(VIP_A, "asha_example"),), frozenset())
+    matches = _resolver(config).resolve("follow \u0430sha_example now")
     assert matches[0].match_confidence == 0.9
 
 
@@ -108,13 +108,13 @@ def test_ambiguous_alias_requires_context() -> None:
 
 
 def test_handle_and_hashtag_matches() -> None:
-    handle_config = VipConfig(VIP_A, (_alias(VIP_A, "vip_sharma", kind=AliasKind.HANDLE),), frozenset())
-    by_handle = _resolver(handle_config).resolve("nothing here", mentions=["@vip_sharma"])
+    handle_config = VipConfig(VIP_A, (_alias(VIP_A, "asha_example", kind=AliasKind.HANDLE),), frozenset())
+    by_handle = _resolver(handle_config).resolve("nothing here", mentions=["@asha_example"])
     assert by_handle[0].match_source == MatchSource.HANDLE
     assert by_handle[0].match_confidence == 1.0
 
-    tag_config = VipConfig(VIP_B, (_alias(VIP_B, "vipsharma", kind=AliasKind.HASHTAG),), frozenset())
-    by_tag = _resolver(tag_config).resolve("trending", hashtags=["#vipsharma"])
+    tag_config = VipConfig(VIP_B, (_alias(VIP_B, "ashaexample", kind=AliasKind.HASHTAG),), frozenset())
+    by_tag = _resolver(tag_config).resolve("trending", hashtags=["#ashaexample"])
     assert by_tag[0].match_source == MatchSource.HASHTAG
 
 
@@ -129,7 +129,7 @@ def test_multiple_vips_are_matched() -> None:
 
 @DB_REQUIRED
 def test_resolve_for_item_links_item_vips(db_session) -> None:
-    vip = VIP(name="Vip Integration")
+    vip = VIP(name="Asha Integration")
     db_session.add(vip)
     db_session.flush()
     db_session.add(VipAlias(vip_id=vip.id, alias="vip sharma", kind=AliasKind.NAME, is_ambiguous=False))

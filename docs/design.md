@@ -921,8 +921,7 @@ aegis/
 migrations/      # Alembic; root alembic.ini targets these; the first migration runs CREATE EXTENSION vector, pg_trgm
 frontend/
 deploy/          # Grafana dashboards, Prometheus rules (docker-compose.yml lives at the repo root)
-data/golden/     # labelled evaluation set (input to aegis.eval)
-reports/eval/    # eval reports; baseline.json is committed and used by the CI gate
+data/private/    # private Aegis-data checkout: golden set, caches, eval reports (input to aegis.eval)
 docs/            # data-protection.md, runbooks, annotation guidelines
 ```
 
@@ -936,8 +935,8 @@ docs/            # data-protection.md, runbooks, annotation guidelines
   - Report precision, recall, and F1 at the operating threshold.
   - Fail CI if either precision or recall drops by more than the configured tolerance.
   - **Entrypoint:**
-    - `python -m aegis.eval run --golden data/golden/ --out reports/eval/` writes a per-detector, per-language report (JSON and Markdown).
-    - `python -m aegis.eval gate --baseline reports/eval/baseline.json --tolerance 0.02` compares against the committed baseline and exits non-zero on a regression.
+    - `python -m aegis.eval run --golden data/private/golden --out data/private/reports/eval` writes a per-detector, per-language report (JSON and Markdown).
+    - `python -m aegis.eval gate --baseline data/private/reports/eval/baseline.json --tolerance 0.02` compares against the baseline and exits non-zero on a regression.
     - `make eval` and `make eval-gate` wrap these commands.
 - **Performance:** replay at 2× the sustained rate (20 items/s) and the burst profile (50 items/s for 15 minutes); assert the p95 processing-latency and alert-latency targets at the sustained rate and the 10-minute post-burst drain; benchmark search on one year of synthetic volume.
 - **Security:** authorization tests for VIP scoping and role boundaries, SSRF test suite, masked-value leakage tests on API, alerts, and logs.

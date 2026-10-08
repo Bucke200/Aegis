@@ -8,7 +8,8 @@ bumps the version and triggers relabelling of affected pilot items.
 
 Two labelled sets serve different jobs:
 
-- **Gate set** (`data/golden/intent/`): synthetic candidates, blind-labelled
+- **Gate set** (`data/private/golden/intent/`, in the private `Aegis-data`
+  repository): synthetic candidates, blind-labelled
   and reviewed, committed to the repository. Its job is to catch detector
   drift in CI. It is not used to fit the calibrator.
 - **Reality set** (not committed): real text from public research datasets and
@@ -127,7 +128,8 @@ python -m aegis.eval merge --reviewed data/labelling/reviewed.jsonl --guideline-
 ```
 
 Everything under `data/labelling/` is gitignored work in progress. Only the
-merged `data/golden/intent/*.jsonl` files are committed.
+merged `data/private/golden/intent/*.jsonl` files are committed, and only to the
+private `Aegis-data` repository (cloned by `make data`).
 
 ## 9. Pilot and target
 

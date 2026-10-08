@@ -97,9 +97,9 @@ TEMPLATES: dict[str, dict[str, tuple[str, ...]]] = {
             "Brothers, it is time to storm {vip}'s office.",
         ),
         "doxxing": (
-            "Here is {vip}'s home address: 42 Fake Lane, New Delhi. Phone +91 90000 00001.",
-            "{vip} lives at 17 Example Road, flat 4B. Number +91 90000 00002.",
-            "Leaked: {vip}'s email vip.leak@example.test and phone +91 90000 00003.",
+            "Here is {vip}'s home address: 42 Fake Lane, New Delhi. Phone +91 50000 00001.",
+            "{vip} lives at 17 Example Road, flat 4B. Number +91 50000 00002.",
+            "Leaked: {vip}'s email vip.leak@example.test and phone +91 50000 00003.",
             "Find {vip} at 9 Sample Street tonight. Aadhaar 1111 2222 3333.",
         ),
     },
@@ -135,9 +135,9 @@ TEMPLATES: dict[str, dict[str, tuple[str, ...]]] = {
             "भाइयों, {vip} के दफ्तर पर हमला करने का समय है।",
         ),
         "doxxing": (
-            "{vip} का घर का पता: 42 फेक लेन, दिल्ली। फोन +91 90000 00001।",
-            "{vip} 17 उदाहरण रोड, फ्लैट 4B में रहते हैं। नंबर +91 90000 00002।",
-            "लीक: {vip} का ईमेल vip.leak@example.test और फोन +91 90000 00003।",
+            "{vip} का घर का पता: 42 फेक लेन, दिल्ली। फोन +91 50000 00001।",
+            "{vip} 17 उदाहरण रोड, फ्लैट 4B में रहते हैं। नंबर +91 50000 00002।",
+            "लीक: {vip} का ईमेल vip.leak@example.test और फोन +91 50000 00003।",
             "{vip} का आधार नंबर 1111 2222 3333 और पता 9 सैंपल स्ट्रीट।",
         ),
     },
@@ -173,9 +173,9 @@ TEMPLATES: dict[str, dict[str, tuple[str, ...]]] = {
             "Bhaiyon, {vip} ke daftar par attack karne ka time hai.",
         ),
         "doxxing": (
-            "{vip} ka ghar ka pata: 42 Fake Lane, Delhi. Phone +91 90000 00001.",
-            "{vip} 17 Example Road, flat 4B mein rehte hain. Number +91 90000 00002.",
-            "Leak: {vip} ka email vip.leak@example.test aur phone +91 90000 00003.",
+            "{vip} ka ghar ka pata: 42 Fake Lane, Delhi. Phone +91 50000 00001.",
+            "{vip} 17 Example Road, flat 4B mein rehte hain. Number +91 50000 00002.",
+            "Leak: {vip} ka email vip.leak@example.test aur phone +91 50000 00003.",
             "{vip} ka Aadhaar 1111 2222 3333 aur address 9 Sample Street.",
         ),
     },
@@ -247,7 +247,7 @@ def generate_candidates(
     *,
     per_class: int = 100,
     seed: int = 7,
-    vip: str = "Vip Sharma",
+    vip: str = "Asha Example",
     languages: tuple[str, ...] = LANGUAGES,
 ) -> list[Candidate]:
     """Generate a deterministic candidate set, ``per_class`` per cell."""
