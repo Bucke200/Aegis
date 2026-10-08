@@ -21,14 +21,22 @@ from aegis.eval.annotate import (
     write_records,
     write_sheet,
 )
-from aegis.eval.candidates import generate_candidates
+from aegis.eval.bank import write_bank
+from aegis.eval.candidates import generate_from_bank, seed_bank
 from aegis.eval.dataset import load_golden
 
 PER_CLASS = 3
 
 
-def _candidates():
-    return generate_candidates(per_class=PER_CLASS, seed=7)
+@pytest.fixture(scope="module")
+def bank_dir(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    path = tmp_path_factory.mktemp("bank")
+    write_bank(seed_bank(), path / "hand-written.jsonl")
+    return path
+
+
+def _candidates(bank_dir: Path):
+    return generate_from_bank(bank_dir, per_class=PER_CLASS, seed=7)
 
 
 def _agreeing_records(candidates, *, annotator: str = "tester") -> list[LabelRecord]:
@@ -37,9 +45,9 @@ def _agreeing_records(candidates, *, annotator: str = "tester") -> list[LabelRec
     ]
 
 
-def test_generate_is_deterministic_and_covers_cells() -> None:
-    first = _candidates()
-    second = _candidates()
+def test_generate_is_deterministic_and_covers_cells(bank_dir: Path) -> None:
+    first = _candidates(bank_dir)
+    second = _candidates(bank_dir)
     assert first == second
     assert len(first) == len(INTENT_LABELS) * 3 * PER_CLASS
 
@@ -53,8 +61,8 @@ def test_generate_is_deterministic_and_covers_cells() -> None:
     assert any(item.edge_case for item in first)
 
 
-def test_sheet_hides_labels_and_has_bom(tmp_path: Path) -> None:
-    candidates = _candidates()
+def test_sheet_hides_labels_and_has_bom(tmp_path: Path, bank_dir: Path) -> None:
+    candidates = _candidates(bank_dir)
     path = write_sheet(candidates, tmp_path / "sheet.csv", seed=7)
 
     raw = path.read_bytes()
@@ -94,8 +102,8 @@ def test_cohen_kappa() -> None:
     assert cohen_kappa([("a", "a"), ("b", "b"), ("a", "b"), ("b", "a")]) == 0.0
 
 
-def test_agreement_stats_and_sample() -> None:
-    candidates = _candidates()
+def test_agreement_stats_and_sample(bank_dir: Path) -> None:
+    candidates = _candidates(bank_dir)
     annotated = _agreeing_records(candidates)
     annotated[0] = LabelRecord(id=candidates[0].id, label="ambiguous", annotator="tester")
     annotated[1] = LabelRecord(
@@ -116,8 +124,8 @@ def test_agreement_stats_and_sample() -> None:
     assert len(required) == round(0.25 * len(candidates))
 
 
-def test_merge_requires_review_and_writes_golden(tmp_path: Path) -> None:
-    candidates = _candidates()
+def test_merge_requires_review_and_writes_golden(tmp_path: Path, bank_dir: Path) -> None:
+    candidates = _candidates(bank_dir)
     annotated = _agreeing_records(candidates)
     annotated[0] = LabelRecord(id=candidates[0].id, label="ambiguous", annotator="tester")
 
@@ -160,8 +168,8 @@ def test_merge_requires_review_and_writes_golden(tmp_path: Path) -> None:
     assert any(item.reviewer == "reviewer" for item in loaded)
 
 
-def test_merge_rejects_missing_blind_labels(tmp_path: Path) -> None:
-    candidates = _candidates()
+def test_merge_rejects_missing_blind_labels(tmp_path: Path, bank_dir: Path) -> None:
+    candidates = _candidates(bank_dir)
     annotated = _agreeing_records(candidates)[:-1]
     with pytest.raises(ValueError, match="no blind label") as error:
         merge_to_golden(
@@ -173,7 +181,7 @@ def test_merge_rejects_missing_blind_labels(tmp_path: Path) -> None:
     assert "no blind label" in str(error.value)
 
 
-def test_cli_generate_sheet_import_stats_merge(tmp_path: Path) -> None:
+def test_cli_generate_sheet_import_stats_merge(tmp_path: Path, bank_dir: Path) -> None:
     candidates_path = tmp_path / "candidates.jsonl"
     sheet_path = tmp_path / "sheet.csv"
     annotated_path = tmp_path / "annotated.jsonl"
@@ -181,7 +189,7 @@ def test_cli_generate_sheet_import_stats_merge(tmp_path: Path) -> None:
     reviewed_path = tmp_path / "reviewed.jsonl"
     golden_dir = tmp_path / "intent"
 
-    assert main(["generate", "--out", str(candidates_path), "--per-class", "2"]) == 0
+    assert main(["generate", "--out", str(candidates_path), "--bank-dir", str(bank_dir), "--per-class", "2"]) == 0
     assert main(["sheet", "--candidates", str(candidates_path), "--out", str(sheet_path)]) == 0
 
     candidates = load_candidates(candidates_path)
@@ -233,3 +241,40 @@ def test_cli_generate_sheet_import_stats_merge(tmp_path: Path) -> None:
         == 0
     )
     assert len(load_golden(golden_dir)) == len(candidates)
+
+
+def test_unusable_excluded_from_kappa_and_flags_redraft(bank_dir: Path) -> None:
+    candidates = _candidates(bank_dir)
+    annotated = _agreeing_records(candidates)
+    cell = [item for item in candidates if item.language == "en" and item.intended_label == "violent_threat"]
+    cell_ids = {item.id for item in cell}
+    annotated = [
+        LabelRecord(id=record.id, label="unusable" if record.id in cell_ids else record.label, annotator="tester")
+        for record in annotated
+    ]
+    stats = agreement_stats(candidates, annotated)
+    assert stats["unusable"] == len(cell)
+    assert stats["redraft_cells"] == ["en/violent_threat"]
+    assert all(disagreement["id"] not in cell_ids for disagreement in stats["disagreements"])
+
+
+def test_merge_drops_unusable_items(tmp_path: Path, bank_dir: Path) -> None:
+    candidates = _candidates(bank_dir)
+    annotated = _agreeing_records(candidates)
+    annotated[0] = LabelRecord(id=candidates[0].id, label="unusable", annotator="tester")
+    required = review_sample_ids(candidates, annotated, fraction=0.25, seed=7)
+    by_id = {candidate.id: candidate for candidate in candidates}
+    reviewed = [
+        LabelRecord(id=item, label=by_id[item].intended_label, annotator="reviewer", role="reviewer")
+        for item in required
+    ]
+    summary = merge_to_golden(
+        candidates=candidates,
+        annotated=annotated,
+        reviewed=reviewed,
+        out_dir=tmp_path / "intent",
+    )
+    assert summary["dropped"] == 1
+    loaded = load_golden(tmp_path / "intent")
+    assert candidates[0].id not in {item.id for item in loaded}
+    assert all(item.drafter for item in loaded)

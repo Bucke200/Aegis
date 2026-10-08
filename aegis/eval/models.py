@@ -27,6 +27,7 @@ class GoldenItem(BaseModel):
     intended_label: str | None = None
     blind_label: str | None = None
     final_label: str | None = None
+    drafter: str | None = None
     annotator: str | None = None
     reviewer: str | None = None
     reviewed_at: str | None = None
