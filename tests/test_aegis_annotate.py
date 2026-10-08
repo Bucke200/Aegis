@@ -113,10 +113,12 @@ def test_agreement_stats_and_sample(bank_dir: Path) -> None:
     )
 
     stats = agreement_stats(candidates, annotated)
-    assert stats["items"] == len(candidates)
+    assert stats["items"] == len(candidates) - 1
+    assert stats["items_with_ambiguous"] == len(candidates)
     assert stats["ambiguous"] == 1
     assert len(stats["disagreements"]) == 1
     assert 0.0 <= stats["kappa"] <= 1.0
+    assert 0.0 <= stats["kappa_with_ambiguous"] <= 1.0
 
     required = review_sample_ids(candidates, annotated, fraction=0.25, seed=7)
     assert candidates[0].id in required

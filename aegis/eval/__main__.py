@@ -73,6 +73,7 @@ def build_parser() -> argparse.ArgumentParser:
     generate_parser.add_argument("--bank-dir", type=Path, default=DEFAULT_BANK_DIR)
     generate_parser.add_argument("--per-class", type=int, default=100)
     generate_parser.add_argument("--seed", type=int, default=7)
+    generate_parser.add_argument("--cells", default=None, help="comma-separated language/label cells to select")
 
     seed_parser = subparsers.add_parser("seed-bank", help="write the hand-written and template seed entries")
     seed_parser.add_argument("--out", type=Path, default=DEFAULT_BANK_DIR / "hand-written.jsonl")
@@ -166,8 +167,8 @@ def gate_command(baseline_path: Path, report_file: Path, tolerance: float) -> in
     return 0
 
 
-def generate_command(out: Path, per_class: int, seed: int, bank_dir: Path) -> int:
-    path = annotate.run_generate(out=out, per_class=per_class, seed=seed, bank_dir=bank_dir)
+def generate_command(out: Path, per_class: int, seed: int, bank_dir: Path, cells: list[str] | None = None) -> int:
+    path = annotate.run_generate(out=out, per_class=per_class, seed=seed, bank_dir=bank_dir, cells=cells)
     print(f"wrote {per_class} candidates per class/language to {path}")
     return 0
 
@@ -380,7 +381,8 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "gate":
         return gate_command(args.baseline, args.report, args.tolerance)
     if args.command == "generate":
-        return generate_command(args.out, args.per_class, args.seed, args.bank_dir)
+        cells = [cell.strip() for cell in args.cells.split(",") if cell.strip()] if args.cells else None
+        return generate_command(args.out, args.per_class, args.seed, args.bank_dir, cells)
     if args.command == "seed-bank":
         return seed_bank_command(args.out)
     if args.command == "draft":

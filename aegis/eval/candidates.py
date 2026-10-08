@@ -301,12 +301,13 @@ def generate_from_bank(
     *,
     per_class: int = 100,
     seed: int = 7,
+    cells: list[str] | None = None,
 ) -> list[Candidate]:
     """Sample ``per_class`` clean bank items per cell, with drafter coverage."""
 
     if per_class < 1:
         raise ValueError("per_class must be >= 1")
-    selected = select_for_sheet(load_bank(bank_dir), per_class=per_class, seed=seed)
+    selected = select_for_sheet(load_bank(bank_dir), per_class=per_class, seed=seed, cells=cells)
     return [
         Candidate(
             id=item.id,

@@ -20,6 +20,7 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
 from aegis.detectors.intent import INTENT_LABELS
+from aegis.detectors.lexicons import score_lexicon
 
 DRAFTER_HAND = "hand-written"
 DRAFTER_TEMPLATE = "template-v1"
@@ -143,6 +144,117 @@ ISSUE_TOO_SHORT = "too_short"
 ISSUE_TOO_LONG = "too_long"
 ISSUE_DUPLICATE = "duplicate"
 ISSUE_NEAR_DUPLICATE = "near_duplicate"
+ISSUE_COHERENCE = "coherence"
+
+TOKEN = re.compile(r"[\u0900-\u097F]+|[A-Za-z0-9]+")
+
+HARM_TERMS = frozenset(
+    {
+        "kill",
+        "kills",
+        "killed",
+        "killing",
+        "murder",
+        "shoot",
+        "shoots",
+        "shooting",
+        "shot",
+        "stab",
+        "stabbed",
+        "stabbing",
+        "attack",
+        "attacks",
+        "attacked",
+        "attacking",
+        "burn",
+        "burns",
+        "burned",
+        "burning",
+        "harm",
+        "hurt",
+        "beat",
+        "weapon",
+        "weapons",
+        "gun",
+        "guns",
+        "bullet",
+        "bomb",
+        "storm",
+        "sticks",
+        "stones",
+        "march",
+        "grab",
+        "rise",
+        "goli",
+        "maar",
+        "maro",
+        "marenge",
+        "chaku",
+        "hamla",
+        "hathiyar",
+        "jala",
+        "jalayenge",
+        "khatam",
+        "maut",
+        "sabak",
+        "sikhao",
+        "rokne",
+        "nikal",
+        "chot",
+        "girane",
+        "girana",
+        "हथियार",
+        "मार",
+        "मारो",
+        "मारना",
+        "मारेंगे",
+        "गोली",
+        "चाकू",
+        "हमला",
+        "जला",
+        "जलाएंगे",
+        "खत्म",
+        "मौत",
+        "बम",
+        "पीट",
+        "सबक",
+        "सिखाओ",
+        "रोकने",
+        "निकल",
+        "चोट",
+        "गिराने",
+        "गिराना",
+    }
+)
+
+ADDRESS_TERMS = frozenset(
+    {
+        "address",
+        "home",
+        "ghar",
+        "pata",
+        "pta",
+        "flat",
+        "lane",
+        "road",
+        "street",
+        "colony",
+        "sector",
+        "nagar",
+        "gali",
+        "घर",
+        "पता",
+        "फ्लैट",
+        "लेन",
+        "रोड",
+        "सड़क",
+        "गली",
+        "कॉलोनी",
+        "सेक्टर",
+        "नगर",
+        "मार्ग",
+    }
+)
 
 CELL_SEPARATOR = "/"
 
@@ -187,8 +299,10 @@ class BankCheck:
 
 
 def bank_item_id(language: str, label: str, drafter: str, text: str) -> str:
+    """Return an opaque, stable id: it must not reveal the intended class."""
+
     digest = uuid.uuid5(NAMESPACE, f"{language}:{label}:{drafter}:{text}").hex[:12]
-    return f"bank-{language}-{label}-{digest}"
+    return f"bank-{digest}"
 
 
 def load_bank(path: Path) -> list[BankItem]:
@@ -268,6 +382,29 @@ def language_issue(expected: str, text: str) -> str | None:
     return None
 
 
+def coherence_issue(item: BankItem) -> str | None:
+    """Flag drafts whose text does not carry the intended class's signal.
+
+    Small models drift toward generic criticism; a threat-class draft without a
+    harm term (or a doxxing draft without any private-data signal) is not usable
+    as that class however the generator labelled it.
+    """
+
+    tokens = set(TOKEN.findall(item.text.casefold()))
+    threat_without_signal = (
+        item.intended_label in {"violent_threat", "incitement"}
+        and not (tokens & HARM_TERMS)
+        and not score_lexicon(item.text, item.language).threat_class
+    )
+    if threat_without_signal:
+        return ISSUE_COHERENCE
+    if item.intended_label == "doxxing":
+        pii_signal = EMAIL.search(item.text) or PHONE_LIKE.search(item.text) or AADHAAR.search(item.text)
+        if not pii_signal and not (tokens & ADDRESS_TERMS):
+            return ISSUE_COHERENCE
+    return None
+
+
 def item_issues(item: BankItem) -> list[str]:
     issues: list[str] = []
     if is_refusal(item.text):
@@ -285,6 +422,9 @@ def item_issues(item: BankItem) -> list[str]:
     language = language_issue(item.language, item.text)
     if language:
         issues.append(language)
+    coherence = coherence_issue(item)
+    if coherence:
+        issues.append(coherence)
     if len(item.text.strip()) < 10:
         issues.append(ISSUE_TOO_SHORT)
     if len(item.text) > 500:
@@ -375,12 +515,14 @@ def select_for_sheet(
     per_class: int,
     seed: int,
     model_drafters: list[str] | None = None,
+    cells: list[str] | None = None,
 ) -> list[BankItem]:
     """Select ``per_class`` clean items per cell with drafter coverage.
 
     Every hand-written and template entry is used first (up to its count), then
     the remaining slots are filled round-robin across model drafters so each
-    model is represented in each cell for the pairwise benchmark.
+    model is represented in each cell for the pairwise benchmark. ``cells``
+    restricts selection to the given ``language/label`` keys.
     """
 
     clean, _ = clean_items(items)
@@ -388,6 +530,7 @@ def select_for_sheet(
     for item in clean:
         by_cell.setdefault(cell_key(item.language, item.intended_label), []).append(item)
 
+    wanted = set(cells) if cells else None
     models = (
         model_drafters
         if model_drafters is not None
@@ -397,6 +540,8 @@ def select_for_sheet(
     for language in ("en", "hi", "hi-Latn"):
         for label in INTENT_LABELS:
             cell = cell_key(language, label)
+            if wanted is not None and cell not in wanted:
+                continue
             available = by_cell.get(cell, [])
             rng = random.Random(f"{seed}:{cell}")
             hand = [item for item in available if item.drafter == DRAFTER_HAND]

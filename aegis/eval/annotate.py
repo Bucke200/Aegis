@@ -29,7 +29,7 @@ from pydantic import BaseModel, field_validator
 
 from aegis.detectors.intent import INTENT_LABELS, THREAT_LABELS
 from aegis.eval.agreement import cohen_kappa, per_class_agreement
-from aegis.eval.bank import DEFAULT_BANK_DIR
+from aegis.eval.bank import DEFAULT_BANK_DIR, DRAFTER_HAND, DRAFTER_TEMPLATE
 from aegis.eval.candidates import Candidate, generate_from_bank
 from aegis.eval.dataset import load_golden
 from aegis.eval.models import GoldenItem
@@ -94,8 +94,9 @@ def run_generate(
     per_class: int = 100,
     seed: int = 7,
     bank_dir: Path = DEFAULT_BANK_DIR,
+    cells: list[str] | None = None,
 ) -> Path:
-    return write_candidates(generate_from_bank(bank_dir, per_class=per_class, seed=seed), out)
+    return write_candidates(generate_from_bank(bank_dir, per_class=per_class, seed=seed, cells=cells), out)
 
 
 def write_sheet(candidates: list[Candidate], path: Path = DEFAULT_SHEET, *, seed: int = 7) -> Path:
@@ -174,6 +175,7 @@ def agreement_stats(
 ) -> dict[str, Any]:
     by_id = _record_map(annotated)
     pairs: list[tuple[str, str]] = []
+    all_pairs: list[tuple[str, str]] = []
     ambiguous = 0
     unusable = 0
     missing = 0
@@ -188,11 +190,14 @@ def agreement_stats(
             continue
         if record.label == "ambiguous":
             ambiguous += 1
+            all_pairs.append((candidate.intended_label, record.label))
+            continue
         if record.label == "unusable":
             unusable += 1
             unusable_by_cell[cell] = unusable_by_cell.get(cell, 0) + 1
             continue
         pairs.append((candidate.intended_label, record.label))
+        all_pairs.append((candidate.intended_label, record.label))
     redraft_cells = sorted(
         cell
         for cell, count in unusable_by_cell.items()
@@ -200,12 +205,14 @@ def agreement_stats(
     )
     return {
         "items": len(pairs),
+        "items_with_ambiguous": len(all_pairs),
         "missing": missing,
         "ambiguous": ambiguous,
         "unusable": unusable,
         "unusable_by_cell": unusable_by_cell,
         "redraft_cells": redraft_cells,
         "kappa": cohen_kappa(pairs),
+        "kappa_with_ambiguous": cohen_kappa(all_pairs),
         "per_class": {label: per_class_agreement(pairs, label) for label in INTENT_LABELS},
         "disagreements": [
             {"id": candidate.id, "intended": candidate.intended_label, "blind": by_id[candidate.id].label}
@@ -224,7 +231,7 @@ def review_sample_ids(
     fraction: float = 0.25,
     seed: int = 7,
 ) -> list[str]:
-    """Disagreements, ambiguous items, plus a deterministic random slice."""
+    """Disagreements, ambiguous items, plus a random slice weighted to model drafts."""
 
     by_id = _record_map(annotated)
     flagged: set[str] = set()
@@ -241,8 +248,12 @@ def review_sample_ids(
             rest.append(candidate.id)
 
     rest.sort(key=lambda item: hashlib.sha256(f"{seed}:{item}".encode()).hexdigest())
+    drafter_by_id = {candidate.id: candidate.drafter for candidate in candidates}
+    model_drafts = [item for item in rest if drafter_by_id.get(item) not in {DRAFTER_HAND, DRAFTER_TEMPLATE}]
+    model_set = set(model_drafts)
+    ordered = model_drafts + [item for item in rest if item not in model_set]
     sample_size = round(fraction * (len(flagged) + len(rest)))
-    random_slice = set(rest[: max(0, sample_size - len(flagged))])
+    random_slice = set(ordered[: max(0, sample_size - len(flagged))])
     return sorted(flagged | random_slice)
 
 

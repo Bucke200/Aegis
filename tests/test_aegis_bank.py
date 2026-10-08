@@ -46,6 +46,19 @@ def test_refusal_detection() -> None:
     assert not is_refusal("The policy cannot be defended.")
 
 
+def test_coherence_flags_incoherent_drafts() -> None:
+    criticism_drift = make_bank_item("The plan for the rally is a bad idea and I disagree.", label="violent_threat")
+    assert "coherence" in item_issues(criticism_drift)
+    real_threat = make_bank_item("I will shoot the rival tonight.", label="violent_threat")
+    assert "coherence" not in item_issues(real_threat)
+    no_call = make_bank_item("Everyone is angry about the rally today.", label="incitement")
+    assert "coherence" in item_issues(no_call)
+    empty_doxx = make_bank_item("Everyone should know the truth about the rally.", label="doxxing")
+    assert "coherence" in item_issues(empty_doxx)
+    real_doxx = make_bank_item("His home address is 42 Fake Lane scene 4.", label="doxxing")
+    assert "coherence" not in item_issues(real_doxx)
+
+
 def test_pii_and_url_checks() -> None:
     assert "pii_phone" in item_issues(make_bank_item("Call +91 91234 56789 now."))
     assert "pii_phone" not in item_issues(make_bank_item("Call +91 50000 00001 now."))
@@ -116,12 +129,32 @@ FILLERS = {
 }
 
 
+COMPLIANCE = {
+    "violent_threat": {
+        "en": "will shoot and kill tonight",
+        "hi": "गोली मारकर जान लेंगे",
+        "hi-Latn": "goli maar ke jaan lenge",
+    },
+    "incitement": {
+        "en": "everyone lets attack with weapons",
+        "hi": "सब लोग चलो हमला करो",
+        "hi-Latn": "sab log chalo hamla karo",
+    },
+    "doxxing": {
+        "en": "home address listed",
+        "hi": "घर का पता लिखा है",
+        "hi-Latn": "ghar ka pata likha hai",
+    },
+}
+
+
 def cell_text(language: str, label: str, tag: str, filler: str) -> str:
+    suffix = COMPLIANCE.get(label, {}).get(language, "")
     if language == "hi":
-        return f"{tag} कहता है कि {label} के लिए {filler} योजना पर आज लंबी चर्चा होनी चाहिए।"
+        return f"{tag} कहता है कि {label} के लिए {filler} योजना पर आज लंबी चर्चा होनी चाहिए। {suffix}"
     if language == "hi-Latn":
-        return f"{tag} kehta hai ki {label} ke liye {filler} yojana par aaj lambi charcha honi chahiye."
-    return f"{tag} says the {filler} plan for {label} is worth a long discussion today."
+        return f"{tag} kehta hai ki {label} ke liye {filler} yojana par aaj lambi charcha honi chahiye. {suffix}"
+    return f"{tag} says the {filler} plan for {label} is worth a long discussion today. {suffix}"
 
 
 def test_select_for_sheet_guarantees_drafter_coverage() -> None:
