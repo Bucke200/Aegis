@@ -26,7 +26,7 @@ DB_REQUIRED = pytest.mark.skipif(
     reason="AEGIS_TEST_DATABASE_URL is not set",
 )
 
-THREAT_TEXT = "I will shoot vip sharma with a gun tomorrow"
+THREAT_TEXT = "I will shoot asha example with a gun tomorrow"
 
 
 class FakeToxicityScorer:
@@ -59,7 +59,7 @@ def _setup(db_session, text: str, *, followers: int = 0) -> tuple[VIP, Item]:
     vip = VIP(name="Vip Analysis")
     db_session.add(vip)
     db_session.flush()
-    db_session.add(VipAlias(vip_id=vip.id, alias="vip sharma", kind=AliasKind.NAME, is_ambiguous=False))
+    db_session.add(VipAlias(vip_id=vip.id, alias="asha example", kind=AliasKind.NAME, is_ambiguous=False))
     db_session.flush()
 
     normalized = Normalizer().normalize(db_session, _payload(text))
@@ -145,7 +145,7 @@ def test_degraded_finalize_marks_stage1_detections(db_session) -> None:
 
 @DB_REQUIRED
 def test_criticism_only_is_clamped(db_session) -> None:
-    _, item = _setup(db_session, "vip sharma's policies are disappointing", followers=1_000_000)
+    _, item = _setup(db_session, "asha example's policies are disappointing", followers=1_000_000)
     context = prepare_analysis(
         db_session,
         {"item_id": str(item.id)},

@@ -132,7 +132,7 @@ def test_resolve_for_item_links_item_vips(db_session) -> None:
     vip = VIP(name="Asha Integration")
     db_session.add(vip)
     db_session.flush()
-    db_session.add(VipAlias(vip_id=vip.id, alias="vip sharma", kind=AliasKind.NAME, is_ambiguous=False))
+    db_session.add(VipAlias(vip_id=vip.id, alias="asha example", kind=AliasKind.NAME, is_ambiguous=False))
     db_session.flush()
 
     normalized = Normalizer().normalize(db_session, _payload())
@@ -150,7 +150,7 @@ def test_paused_vip_is_not_matched(db_session) -> None:
     vip = VIP(name="Vip Paused", monitoring_active=False)
     db_session.add(vip)
     db_session.flush()
-    db_session.add(VipAlias(vip_id=vip.id, alias="vip sharma", kind=AliasKind.NAME, is_ambiguous=False))
+    db_session.add(VipAlias(vip_id=vip.id, alias="asha example", kind=AliasKind.NAME, is_ambiguous=False))
     db_session.flush()
 
     normalized = Normalizer().normalize(db_session, _payload())
