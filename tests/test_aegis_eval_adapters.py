@@ -248,10 +248,10 @@ def test_benchmark_scoring_and_render(tmp_path: Path) -> None:
     assert result.exact_accuracy == 0.5
     assert result.items_per_second == 2.0
 
-    json_path, markdown_path = write_benchmark([result], tmp_path)
+    json_path, markdown_path = write_benchmark([result], [], tmp_path)
     assert json_path.exists()
     assert "model-x" in markdown_path.read_text(encoding="utf-8")
-    assert "model-x" in render_markdown([result])
+    assert "model-x" in render_markdown([result], [])
 
 
 def test_run_classifications_counts_failures() -> None:

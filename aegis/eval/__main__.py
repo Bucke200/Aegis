@@ -4,7 +4,10 @@ Usage:
     python -m aegis.eval run --golden data/private/golden --out data/private/reports/eval
     python -m aegis.eval gate --baseline data/private/reports/eval/baseline.json
 
-    python -m aegis.eval generate --out data/labelling/candidates.jsonl
+    python -m aegis.eval seed-bank --out data/private/banks/hand-written.jsonl
+    python -m aegis.eval draft --bank-dir data/private/banks
+    python -m aegis.eval check-bank --bank-dir data/private/banks
+    python -m aegis.eval generate --bank-dir data/private/banks --out data/labelling/candidates.jsonl
     python -m aegis.eval sheet
     python -m aegis.eval import --sheet data/labelling/sheet.csv --annotator you
     python -m aegis.eval stats --out data/labelling/stats.json
@@ -25,7 +28,14 @@ from pathlib import Path
 
 from aegis.eval import annotate
 from aegis.eval.adapters import build_detectors
-from aegis.eval.benchmark import run_classifications, score_predictions, write_benchmark
+from aegis.eval.bank import DEFAULT_BANK_DIR, check_bank, load_bank, write_bank
+from aegis.eval.benchmark import (
+    held_out,
+    pairwise_benchmarks,
+    run_classifications,
+    score_predictions,
+    write_benchmark,
+)
 from aegis.eval.caches import (
     DEFAULT_LLM_CACHE,
     DEFAULT_TOXICITY_CACHE,
@@ -33,6 +43,7 @@ from aegis.eval.caches import (
     refresh_llm_cache,
     refresh_toxicity_cache,
 )
+from aegis.eval.candidates import VIP_ROSTER, seed_bank
 from aegis.eval.dataset import load_golden
 from aegis.eval.gate import compare_reports
 from aegis.eval.models import EvalReport
@@ -57,11 +68,27 @@ def build_parser() -> argparse.ArgumentParser:
     gate_parser.add_argument("--report", type=Path, default=DEFAULT_OUT / REPORT_JSON)
     gate_parser.add_argument("--tolerance", type=float, default=DEFAULT_TOLERANCE)
 
-    generate_parser = subparsers.add_parser("generate", help="generate blind-labelling candidates")
+    generate_parser = subparsers.add_parser("generate", help="sample blind-labelling candidates from the bank")
     generate_parser.add_argument("--out", type=Path, default=annotate.DEFAULT_CANDIDATES)
+    generate_parser.add_argument("--bank-dir", type=Path, default=DEFAULT_BANK_DIR)
     generate_parser.add_argument("--per-class", type=int, default=100)
     generate_parser.add_argument("--seed", type=int, default=7)
-    generate_parser.add_argument("--vip", default="Asha Example")
+
+    seed_parser = subparsers.add_parser("seed-bank", help="write the hand-written and template seed entries")
+    seed_parser.add_argument("--out", type=Path, default=DEFAULT_BANK_DIR / "hand-written.jsonl")
+
+    draft_parser = subparsers.add_parser("draft", help="draft bank entries with the candidate models")
+    draft_parser.add_argument("--bank-dir", type=Path, default=DEFAULT_BANK_DIR)
+    draft_parser.add_argument("--models", default="llama3.2:3b,qwen2.5:3b,gemma3:4b")
+    draft_parser.add_argument("--per-model", type=int, default=3)
+    draft_parser.add_argument("--attempts", type=int, default=6)
+    draft_parser.add_argument("--seed", type=int, default=7)
+    draft_parser.add_argument("--ollama-url", default="http://localhost:11434")
+    draft_parser.add_argument("--stats-out", type=Path, default=Path("data/labelling/draft-stats.json"))
+
+    check_parser = subparsers.add_parser("check-bank", help="report bank statistics and issues")
+    check_parser.add_argument("--bank-dir", type=Path, default=DEFAULT_BANK_DIR)
+    check_parser.add_argument("--out", type=Path, default=Path("data/labelling/bank-stats.json"))
 
     sheet_parser = subparsers.add_parser("sheet", help="write the shuffled blind annotation sheet")
     sheet_parser.add_argument("--candidates", type=Path, default=annotate.DEFAULT_CANDIDATES)
@@ -139,9 +166,54 @@ def gate_command(baseline_path: Path, report_file: Path, tolerance: float) -> in
     return 0
 
 
-def generate_command(out: Path, per_class: int, seed: int, vip: str) -> int:
-    path = annotate.run_generate(out=out, per_class=per_class, seed=seed, vip=vip)
+def generate_command(out: Path, per_class: int, seed: int, bank_dir: Path) -> int:
+    path = annotate.run_generate(out=out, per_class=per_class, seed=seed, bank_dir=bank_dir)
     print(f"wrote {per_class} candidates per class/language to {path}")
+    return 0
+
+
+def seed_bank_command(out: Path) -> int:
+    items = seed_bank()
+    write_bank(items, out)
+    print(f"wrote {len(items)} seed bank entries to {out}")
+    return 0
+
+
+def check_bank_command(bank_dir: Path, out: Path | None) -> int:
+    summary = check_bank(load_bank(bank_dir)).as_dict()
+    text = json.dumps(summary, indent=2, ensure_ascii=False)
+    print(text)
+    if out is not None:
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(text + "\n", encoding="utf-8")
+    return 0
+
+
+def draft_command(
+    bank_dir: Path,
+    models: str,
+    per_model: int,
+    attempts: int,
+    seed: int,
+    ollama_url: str,
+    stats_out: Path,
+) -> int:
+    from aegis.eval.drafting import run_drafting
+
+    model_list = tuple(entry.strip() for entry in models.split(",") if entry.strip())
+    stats = asyncio.run(
+        run_drafting(
+            models=model_list,
+            vip_roster=VIP_ROSTER,
+            bank_dir=bank_dir,
+            stats_path=stats_out,
+            target_per_model=per_model,
+            attempts_per_model=attempts,
+            ollama_url=ollama_url,
+            seed=seed,
+        )
+    )
+    print(json.dumps(stats.as_dict(), indent=2, ensure_ascii=False))
     return 0
 
 
@@ -268,7 +340,9 @@ def benchmark_command(golden_path: Path, models: str, ollama_url: str, out: Path
 
     base_url = f"{ollama_url.rstrip('/')}/v1"
     results = []
-    for base_model in [entry.strip() for entry in models.split(",") if entry.strip()]:
+    model_list = [entry.strip() for entry in models.split(",") if entry.strip()]
+    runs = {}
+    for base_model in model_list:
         slug = re.sub(r"[^a-z0-9]+", "-", base_model.lower()).strip("-")
         name = f"aegis-bench-{slug}"
         with tempfile.NamedTemporaryFile("w", suffix=".Modelfile", delete=False, encoding="utf-8") as handle:
@@ -278,17 +352,22 @@ def benchmark_command(golden_path: Path, models: str, ollama_url: str, out: Path
             subprocess.run(["ollama", "create", name, "-f", str(modelfile)], check=True, capture_output=True)
             classifier = IntentClassifier(OpenAICompatibleClient(base_url=base_url, api_key="ollama", model=name))
             run = asyncio.run(run_classifications(classifier, items))
-            result = score_predictions(base_model, items, run)
+            runs[base_model] = run
+            scored_items, scored_run = held_out(base_model, items, run)
+            result = score_predictions(base_model, scored_items, scored_run, total_items=len(items))
             results.append(result)
             print(
-                f"{base_model}: valid_json={result.valid_json_rate:.3f} "
+                f"{base_model}: held_out={result.items} valid_json={result.valid_json_rate:.3f} "
                 f"threat_f1={result.threat_f1:.3f} items/s={result.items_per_second:.2f}"
             )
         finally:
             modelfile.unlink(missing_ok=True)
             subprocess.run(["ollama", "rm", name], capture_output=True)
 
-    json_path, markdown_path = write_benchmark(results, out)
+    comparisons = pairwise_benchmarks(model_list, items, runs)
+    for pair in comparisons:
+        print(f"{pair.model_a} vs {pair.model_b}: items={pair.items} delta_f1={pair.delta_threat_f1:+.3f}")
+    json_path, markdown_path = write_benchmark(results, comparisons, out)
     print(f"wrote {json_path} and {markdown_path}")
     return 0
 
@@ -301,7 +380,21 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "gate":
         return gate_command(args.baseline, args.report, args.tolerance)
     if args.command == "generate":
-        return generate_command(args.out, args.per_class, args.seed, args.vip)
+        return generate_command(args.out, args.per_class, args.seed, args.bank_dir)
+    if args.command == "seed-bank":
+        return seed_bank_command(args.out)
+    if args.command == "draft":
+        return draft_command(
+            args.bank_dir,
+            args.models,
+            args.per_model,
+            args.attempts,
+            args.seed,
+            args.ollama_url,
+            args.stats_out,
+        )
+    if args.command == "check-bank":
+        return check_bank_command(args.bank_dir, args.out)
     if args.command == "sheet":
         return sheet_command(args.candidates, args.out, args.seed)
     if args.command == "import":

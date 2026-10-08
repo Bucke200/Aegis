@@ -29,12 +29,14 @@ from pydantic import BaseModel, field_validator
 
 from aegis.detectors.intent import INTENT_LABELS, THREAT_LABELS
 from aegis.eval.agreement import cohen_kappa, per_class_agreement
-from aegis.eval.candidates import Candidate, generate_candidates
+from aegis.eval.bank import DEFAULT_BANK_DIR
+from aegis.eval.candidates import Candidate, generate_from_bank
 from aegis.eval.dataset import load_golden
 from aegis.eval.models import GoldenItem
 
-ANNOTATOR_MARKERS = ("ambiguous",)
+ANNOTATOR_MARKERS = ("ambiguous", "unusable")
 REVIEWER_MARKERS = ("ambiguous", "discard")
+UNUSABLE_REDRAFT_THRESHOLD = 0.10
 DEFAULT_CANDIDATES = Path("data/labelling/candidates.jsonl")
 DEFAULT_SHEET = Path("data/labelling/sheet.csv")
 DEFAULT_ANNOTATED = Path("data/labelling/annotated.jsonl")
@@ -91,9 +93,9 @@ def run_generate(
     out: Path = DEFAULT_CANDIDATES,
     per_class: int = 100,
     seed: int = 7,
-    vip: str = "Asha Example",
+    bank_dir: Path = DEFAULT_BANK_DIR,
 ) -> Path:
-    return write_candidates(generate_candidates(per_class=per_class, seed=seed, vip=vip), out)
+    return write_candidates(generate_from_bank(bank_dir, per_class=per_class, seed=seed), out)
 
 
 def write_sheet(candidates: list[Candidate], path: Path = DEFAULT_SHEET, *, seed: int = 7) -> Path:
@@ -173,27 +175,44 @@ def agreement_stats(
     by_id = _record_map(annotated)
     pairs: list[tuple[str, str]] = []
     ambiguous = 0
+    unusable = 0
     missing = 0
+    unusable_by_cell: dict[str, int] = {}
+    totals_by_cell: dict[str, int] = {}
     for candidate in candidates:
+        cell = f"{candidate.language}/{candidate.intended_label}"
+        totals_by_cell[cell] = totals_by_cell.get(cell, 0) + 1
         record = by_id.get(candidate.id)
         if record is None:
             missing += 1
             continue
         if record.label == "ambiguous":
             ambiguous += 1
+        if record.label == "unusable":
+            unusable += 1
+            unusable_by_cell[cell] = unusable_by_cell.get(cell, 0) + 1
+            continue
         pairs.append((candidate.intended_label, record.label))
+    redraft_cells = sorted(
+        cell
+        for cell, count in unusable_by_cell.items()
+        if count / totals_by_cell.get(cell, count) > UNUSABLE_REDRAFT_THRESHOLD
+    )
     return {
         "items": len(pairs),
         "missing": missing,
         "ambiguous": ambiguous,
+        "unusable": unusable,
+        "unusable_by_cell": unusable_by_cell,
+        "redraft_cells": redraft_cells,
         "kappa": cohen_kappa(pairs),
         "per_class": {label: per_class_agreement(pairs, label) for label in INTENT_LABELS},
         "disagreements": [
             {"id": candidate.id, "intended": candidate.intended_label, "blind": by_id[candidate.id].label}
             for candidate in candidates
             if candidate.id in by_id
+            and by_id[candidate.id].label not in {"ambiguous", "unusable"}
             and by_id[candidate.id].label != candidate.intended_label
-            and by_id[candidate.id].label != "ambiguous"
         ],
     }
 
@@ -214,6 +233,8 @@ def review_sample_ids(
         record = by_id.get(candidate.id)
         if record is None:
             raise ValueError(f"candidate {candidate.id} has no blind label")
+        if record.label == "unusable":
+            continue
         if record.label != candidate.intended_label or record.label == "ambiguous":
             flagged.add(candidate.id)
         else:
@@ -279,6 +300,9 @@ def merge_to_golden(
     dropped: list[str] = []
     for candidate in candidates:
         blind_label = blind[candidate.id].label
+        if blind_label == "unusable":
+            dropped.append(candidate.id)
+            continue
         reviewer = review.get(candidate.id)
         if reviewer is not None and reviewer.label in {"ambiguous", "discard"}:
             dropped.append(candidate.id)
@@ -300,6 +324,7 @@ def merge_to_golden(
                 intended_label=candidate.intended_label,
                 blind_label=blind_label,
                 final_label=final,
+                drafter=candidate.drafter,
                 annotator=blind[candidate.id].annotator,
                 reviewer=reviewer.annotator if reviewer is not None else None,
                 reviewed_at=reviewed_at if reviewer is not None else None,

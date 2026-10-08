@@ -41,13 +41,15 @@ disliking something is not a threat, and anger alone is not a threat.
   Rows are shuffled per sheet.
 - **One label per row.** If you genuinely cannot decide, choose `ambiguous`.
   Ambiguous items are reviewed by the second person; do not use it to avoid
-  ordinary hard cases.
+  ordinary hard cases. If the row is broken, refused, duplicated, or otherwise
+  unusable as data (not merely hard), choose `unusable`; unusable rows are
+  dropped and excluded from kappa.
 - **Cap sessions at ~200 items.** Aim for roughly 20 seconds per item.
 - **Do not fix the text.** Label the text as written. If a template is
   unnatural or broken, still label it if the intent is clear; note systemic
   template problems in the pilot report instead.
 - The `import` command rejects any label outside the six classes plus
-  `ambiguous` (and `discard` for reviewers).
+  `ambiguous` and `unusable` (and `discard` for reviewers).
 
 ## 4. Hard boundaries (draft; ratified in the pilot)
 
@@ -106,17 +108,34 @@ per boundary in this section, replacing these drafts.
   - `ambiguous` drops the item;
   - `discard` drops the item (broken template, duplicate, unusable text).
 - **Agreement:** the first annotator vs the generator is tracked per class and
-  overall with Cohen's kappa. Target kappa >= 0.7 on the pilot. If the target
-  is missed, revise this document, regenerate candidates if needed, and redo
-  the pilot; relabel only after the guidelines are stable.
+  overall with Cohen's kappa. Unusable rows are excluded from kappa and counted.
+  Target kappa >= 0.7 on the pilot. If the target is missed, revise this
+  document, regenerate candidates if needed, and redo the pilot; relabel only
+  after the guidelines are stable.
+- **Redraft rule:** if more than ~10% of a cell (10 rows) is marked unusable, the
+  cell's drafts are treated as bad and the whole cell is redrafted rather than
+  filled from whatever is left. `stats` reports `unusable_by_cell` and
+  `redraft_cells`.
 - **Second-person availability:** if no Hindi-fluent reviewer is available,
   relabel the 25% sample yourself after at least a week's gap and record it in
   the pilot report as a known weakness.
 
 ## 8. Workflow
 
+The candidate sheet is sampled from the private draft bank, which mixes
+hand-written entries, templated variants, and drafts from the benchmarked
+models (every item records its drafter so the benchmark can hold out drafts).
+
 ```bash
-python -m aegis.eval generate --per-class 10 --seed 7 --out data/labelling/candidates.jsonl
+# one-time (and after a model or prompt change): build the private bank
+python -m aegis.eval seed-bank --out data/private/banks/hand-written.jsonl
+python -m aegis.eval draft --bank-dir data/private/banks \
+    --models llama3.2:3b,qwen2.5:3b,gemma3:4b --per-model 3 --attempts 6
+python -m aegis.eval check-bank --bank-dir data/private/banks
+
+# then the pilot
+python -m aegis.eval generate --bank-dir data/private/banks --per-class 10 --seed 7 \
+    --out data/labelling/candidates.jsonl
 python -m aegis.eval sheet --candidates data/labelling/candidates.jsonl --out data/labelling/sheet.csv
 # annotate sheet.csv in a spreadsheet (the label column), then:
 python -m aegis.eval import --sheet data/labelling/sheet.csv --annotator <you>

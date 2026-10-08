@@ -1,25 +1,36 @@
 """Seeded candidate generation for the blind-labelled golden set.
 
-Candidates are templated synthetic items. Each candidate carries the
-generator's *intended* class, which the annotation sheet deliberately hides:
-the human annotator labels blind, and agreement between the intended and blind
-labels is what admits an item into the gate set (see docs/annotation-guidelines.md).
-
-Doxxing candidates use only fake PII in reserved example.test domains and
-obviously invalid numbers.
+The pilot and gate sets are sampled from the private draft bank
+(``data/private/banks/``, see ``aegis.eval.bank``), which mixes hand-written
+entries, templated variants, and drafts from the benchmarked models. This module
+builds those seed entries and maps a bank selection into sheet ``Candidate``
+records. All VIP names are fictional; doxxing entries use only fake PII.
 """
 
 from __future__ import annotations
 
 import random
-import uuid
 from dataclasses import dataclass
+from pathlib import Path
 
 from aegis.detectors.intent import INTENT_LABELS
+from aegis.eval.bank import (
+    DRAFTER_HAND,
+    DRAFTER_TEMPLATE,
+    BankItem,
+    bank_item_id,
+    load_bank,
+    select_for_sheet,
+)
 
 GENERATOR_MODEL = "template-v1"
 LANGUAGES = ("en", "hi", "hi-Latn")
-NAMESPACE = uuid.UUID("e0f4f3d2-5c1b-4a7e-9c3d-4b8a6f2d1e77")
+
+VIP_ROSTER: dict[str, tuple[str, ...]] = {
+    "en": ("Aarav Zephlin", "Meera Solvane", "Rohan Kaverin", "Nisha Vexley"),
+    "hi": ("आरव ज़ेफ्लिन", "मीरा सोल्वेन", "रोहन कावेरिन", "निशा वेक्सली"),
+    "hi-Latn": ("Aarav Zephlin", "Meera Solvane", "Rohan Kaverin", "Nisha Vexley"),
+}
 
 PREFIXES: dict[str, tuple[str, ...]] = {
     "en": ("", "Forwarded: ", "Group post: ", "Comment: ", "Breaking: "),
@@ -214,13 +225,9 @@ class Candidate:
     language: str
     text: str
     intended_label: str
+    drafter: str = DRAFTER_HAND
     edge_case: str | None = None
     generator_model: str = GENERATOR_MODEL
-
-
-def _candidate_id(language: str, label: str, text: str) -> str:
-    digest = uuid.uuid5(NAMESPACE, f"{language}:{label}:{text}").hex[:12]
-    return f"cand-{language}-{label}-{digest}"
 
 
 def _cell_texts(language: str, label: str, vip: str) -> list[str]:
@@ -235,56 +242,80 @@ def _cell_texts(language: str, label: str, vip: str) -> list[str]:
     return list(dict.fromkeys(texts))
 
 
-def _cell_edge_cases(language: str, label: str, vip: str) -> list[tuple[str, str]]:
-    return [
-        (template.format(vip=vip), edge_case)
-        for template_label, edge_case, template in EDGE_TEMPLATES[language]
-        if template_label == label
-    ]
+def seed_bank(vip_roster: dict[str, tuple[str, ...]] | None = None) -> list[BankItem]:
+    """Build the hand-written and template seed entries for every cell."""
 
-
-def generate_candidates(
-    *,
-    per_class: int = 100,
-    seed: int = 7,
-    vip: str = "Asha Example",
-    languages: tuple[str, ...] = LANGUAGES,
-) -> list[Candidate]:
-    """Generate a deterministic candidate set, ``per_class`` per cell."""
-
-    if per_class < 1:
-        raise ValueError("per_class must be >= 1")
-    candidates: list[Candidate] = []
-    for language in languages:
-        if language not in TEMPLATES:
-            raise ValueError(f"unknown language {language!r}")
+    roster = vip_roster or VIP_ROSTER
+    items: list[BankItem] = []
+    for language in LANGUAGES:
+        names = roster[language]
         for label in INTENT_LABELS:
-            rng = random.Random(f"{seed}:{language}:{label}")
-            edge_items = _cell_edge_cases(language, label, vip)
-            edge_quota = min(len(edge_items), max(2, per_class // 10))
-            rng.shuffle(edge_items)
-            chosen_edges = edge_items[:edge_quota]
-
-            core = _cell_texts(language, label, vip)
-            if len(core) + len(chosen_edges) < per_class:
-                raise ValueError(
-                    f"not enough template combinations for {language}/{label}: "
-                    f"{len(core) + len(chosen_edges)} < {per_class}"
-                )
-            rng.shuffle(core)
-            chosen = [text for text, _ in chosen_edges]
-            chosen.extend(text for text in core if text not in chosen)
-            chosen = chosen[:per_class]
-
-            edge_by_text = dict(chosen_edges)
-            for text in chosen:
-                candidates.append(
-                    Candidate(
-                        id=_candidate_id(language, label, text),
+            templates = TEMPLATES[language][label]
+            for index, template in enumerate(templates):
+                text = template.format(vip=names[index % len(names)])
+                items.append(
+                    BankItem(
+                        id=bank_item_id(language, label, DRAFTER_HAND, text),
                         language=language,
                         text=text,
                         intended_label=label,
-                        edge_case=edge_by_text.get(text),
+                        drafter=DRAFTER_HAND,
+                        generator_model=GENERATOR_MODEL,
                     )
                 )
-    return candidates
+            for template_label, edge_case, template in EDGE_TEMPLATES[language]:
+                if template_label != label:
+                    continue
+                text = template.format(vip=names[len(templates) % len(names)])
+                items.append(
+                    BankItem(
+                        id=bank_item_id(language, label, DRAFTER_HAND, text),
+                        language=language,
+                        text=text,
+                        intended_label=label,
+                        drafter=DRAFTER_HAND,
+                        edge_case=edge_case,
+                        generator_model=GENERATOR_MODEL,
+                    )
+                )
+            variants = _cell_texts(language, label, names[0])
+            cores = {template.format(vip=names[0]) for template in templates}
+            dressed = [text for text in variants if text not in cores]
+            random.Random(f"seed:{language}:{label}").shuffle(dressed)
+            for text in dressed[:2]:
+                items.append(
+                    BankItem(
+                        id=bank_item_id(language, label, DRAFTER_TEMPLATE, text),
+                        language=language,
+                        text=text,
+                        intended_label=label,
+                        drafter=DRAFTER_TEMPLATE,
+                        generator_model=GENERATOR_MODEL,
+                    )
+                )
+    return items
+
+
+def generate_from_bank(
+    bank_dir: Path,
+    *,
+    per_class: int = 100,
+    seed: int = 7,
+) -> list[Candidate]:
+    """Sample ``per_class`` clean bank items per cell, with drafter coverage."""
+
+    if per_class < 1:
+        raise ValueError("per_class must be >= 1")
+    selected = select_for_sheet(load_bank(bank_dir), per_class=per_class, seed=seed)
+    return [
+        Candidate(
+            id=item.id,
+            language=item.language,
+            text=item.text,
+            intended_label=item.intended_label,
+            drafter=item.drafter,
+            edge_case=item.edge_case,
+            generator_model=item.generator_model or GENERATOR_MODEL,
+        )
+        for item in selected
+    ]
