@@ -1,6 +1,6 @@
 # Phase 1 Plan and Handoff
 
-Status: living document. Last updated 2026-10-07 on branch `phase1-setup`.
+Status: living document. Last updated 2026-10-08 on branch `phase1-local-verify`.
 Purpose: carry the Phase 1 decisions, workstreams, and machine setup across the
 Windows-to-WSL migration. The authoritative task list remains `docs/tasks.md`.
 
@@ -66,8 +66,9 @@ confirmed. That is why the two sets are separate.
 
 ### Workstream 1 - Durability and exactly-once
 
-Status: implemented on `phase1-durability`; validated by the Integration
-workflow on pull requests touching queue code and nightly on `master`.
+Status: implemented and validated. `tests/test_aegis_durability.py` passes in
+the Integration workflow (both the broker-restart and worker-kill scenarios) and
+locally on Windows (section 6); task 3.1 is marked done.
 
 - `tests/test_aegis_durability.py`, gated by `AEGIS_INTEGRATION=1` (normal pytest skips).
   - Broker restart: publish 1,000 confirmed messages; the consumer writes to
@@ -114,10 +115,10 @@ The 180-item pilot itself is a human labelling step and is pending.
 
 ### Workstream 4 - Adapters, Ollama dev provider, identity calibrator, baseline
 
-Status: tooling implemented on `phase1-eval-adapters` (per-class metrics,
-adapters, commits caches, cache/benchmark CLI, Ollama provider, identity
-marker). Caches, model choice, and the new baseline wait for the pilot labels
-and the WSL Ollama setup.
+Status: tooling implemented and merged (PR #4). The Ollama dev path was then
+validated end to end on Windows (section 6), which surfaced two bugs now fixed
+on `phase1-local-verify`. Caches, model choice, and the new baseline still wait
+for the pilot labels; the WSL migration repeats the Ollama build steps.
 
 - Metrics per section C4: `EvalReport.per_class` carries a per-language
   confusion matrix; the gate still checks only the aggregate table.
@@ -144,6 +145,8 @@ and the WSL Ollama setup.
 - Pin the config in `deploy/ollama/Modelfile.aegis-intent` (committed):
   `FROM llama3.2:3b`, `PARAMETER num_ctx 2048`, `PARAMETER temperature 0`,
   `PARAMETER seed 42`; then `ollama create aegis-intent -f ...`.
+  Validated on Windows: `ollama ps` reports 100% GPU after one call. The model
+  is throwaway once the repo moves to WSL; rebuild it there.
 - One model, one request at a time: `OLLAMA_NUM_PARALLEL=1`,
   `OLLAMA_MAX_LOADED_MODELS=1`; run cache refresh sequentially.
 - Cache key uses the model digest from `/api/tags`, not the tag.
@@ -157,15 +160,16 @@ and the WSL Ollama setup.
 
 Verified on the host (2026-10-07): RTX 3050 Laptop 4 GB, driver 617.14; WSL2 with
 `Ubuntu-22.04` and `docker-desktop` distros; 15.4 GB RAM; Ollama installed
-Windows-side but with zero models. Target: repo and all tooling inside WSL2 ext4.
+Windows-side. Target: repo and all tooling inside WSL2 ext4.
 
 Windows side (done):
 
 - [x] Ignored-file audit; only `frontend/src/lib/format.ts` was wrongly ignored.
 - [x] `.gitignore` anchored, `.gitattributes` added, `data/labelling/` ignored.
 - [x] Branch `phase1-setup` with two commits (ignore fix, 9.4 work).
-- [ ] Push branch and open a PR; let CI run; merge to master. (`gh` is not
-      installed on Windows; open the PR in the browser or push master directly.)
+- [x] PRs #1-#4 opened, CI green, merged to `master`.
+- [x] Local stack verified on Windows: full suite, durability, pipeline, dashboard,
+      and Ollama Stage 2 (section 6).
 - [ ] After the WSL smoke test passes, rename `C:\projects\Aegis` to
       `C:\projects\Aegis.old` and delete it a week later.
 
@@ -179,9 +183,10 @@ WSL2 side (pending):
    and that `frontend/src/lib/format.ts` exists.
 5. Git config: `core.autocrlf input`; credentials via `gh auth`.
 6. Recreate `.venv` with `uv sync` and `frontend/node_modules` with `npm ci`.
-   Hand-copy nothing today: no `.env`, `data/labelling/`, or `models/` exist on
-   the Windows copy.
-7. Create `.env` with dev LLM values: `AEGIS_LLM_PROVIDER=ollama`,
+   Copy or recreate `.env` (it now exists on the Windows copy with local-only
+   secrets; never commit it, and switch `POSTGRES_PORT` off 5433 only if the
+   native Windows Postgres is gone).
+7. `.env` dev LLM values: `AEGIS_LLM_PROVIDER=ollama`,
    `AEGIS_LLM_BASE_URL=http://localhost:11434/v1`, `AEGIS_LLM_MODEL=aegis-intent`,
    empty key.
 8. Ollama: install inside Ubuntu (enable systemd in `/etc/wsl.conf` or run
@@ -202,19 +207,60 @@ Fallback: if the agent cannot run in WSL, test a read/write/edit through
 `\\wsl.localhost\Ubuntu-22.04\home\<user>\projects\Aegis`; if that fails, fall
 back to a Windows-resident repo with `UV_PROJECT_ENVIRONMENT=~/.venvs/aegis`.
 
-## 6. Deferred and known weaknesses
+## 6. Local verification (Windows, completed 2026-10-08)
+
+The full stack was brought up on the Windows host before the WSL migration to
+shake out bugs early.
+
+Environment notes:
+
+- A native Windows PostgreSQL occupies 127.0.0.1:5432, so the Compose Postgres
+  host port is parameterized (`POSTGRES_PORT`, default 5432) and the local
+  `.env` uses **5433**. CI and the Compose-internal `postgres:5432` are unaffected.
+- `.env` exists locally with generated secrets, Ollama dev values, and
+  `AEGIS_TOXICITY_ENABLED=false`; it stays gitignored and must be recreated in WSL.
+- The Ollama 0.40.0 Windows tray app wedged after a model create; run
+  `ollama serve` directly on this machine.
+
+Results:
+
+- `uv run pytest` against local Postgres 5433, RabbitMQ, and MinIO:
+  ~241 passed, 2 skipped (the integration gate).
+- `AEGIS_INTEGRATION=1 pytest tests/test_aegis_durability.py`: 2 passed
+  (broker restart, worker SIGKILL), so task 3.1's Done-when is proven locally.
+- End-to-end: replay -> normalizer -> analysis -> incident -> outbox (1/1
+  published) -> REST `/incidents` -> dashboard preview on 4173 with a passing
+  CORS preflight.
+- Ollama: `llama3.2:3b` pulled and `aegis-intent` built from the Modelfile;
+  `ollama ps` shows 100% GPU. The fixture item classifies as `violent_threat`
+  (`calibration: identity`), and the specificity override makes the incident
+  critical (risk 1.0).
+- An X-shaped item (`source=x`) replays through the whole pipeline. Extraction
+  from X itself remains post-MVP (paid API, task 22); manual URL submission is
+  task 12.1.
+
+Bugs found by the live run and fixed (PR `phase1-local-verify`):
+
+- `IntentClassification.spans` normalizes bare-string fragments from small models
+  to `{"text": ...}`.
+- `OpenAICompatibleClient` omits the `Authorization` header when the key is empty
+  (httpx rejects `Bearer ` as an illegal header); an explicit empty key no longer
+  falls back to settings.
+
+## 7. Deferred and known weaknesses
 
 - Reality set (~300 real items) and calibrator fitting wait for the real provider.
-- A 3B model's self-reported probabilities are coarse: this baseline is a
-  plumbing and drift check, not an accuracy claim; regenerate when the real
-  provider is chosen.
+- A 3B model's self-reported probabilities are coarse (0/1-style outputs): this
+  baseline is a plumbing and drift check, not an accuracy claim; regenerate when
+  the real provider is chosen.
 - Licences: `qwen2.5:3b` is research-only; `llama3.2` and `gemma3` have community
   terms. Fine for dev benchmarking; production self-hosting needs review.
 - `docs/data-protection.md` (task 19.3) does not exist yet; real text must stay
   out of the repository until retention and PII handling are documented.
 - Task 6.2's media fork stays in Phase 2; it needs the real media worker (14.1/14.2).
+- The Windows Ollama model and `.env` are throwaway; the WSL migration rebuilds both.
 
-## 7. References
+## 8. References
 
 - `docs/tasks.md` - authoritative task list (task 4.3, 7.2, 18.2 are the Phase 1 anchors).
 - `docs/design.md` - text detection cascade and calibrator rules (sections

@@ -8,12 +8,14 @@ from datetime import date
 from typing import Any
 
 import pytest
+import respx
 
 from aegis.common.llm_budget import BudgetExhaustedError, charge_tokens, tokens_used
 from aegis.detectors.intent import (
     INTENT_DETECTOR,
     IntentClassifier,
     LLMOutputError,
+    OpenAICompatibleClient,
     run_stage2,
 )
 
@@ -134,6 +136,19 @@ def test_budget_refusal_degrades_without_calling_the_provider() -> None:
     assert client.calls == 0
 
 
+def test_string_spans_are_normalised_to_fragments() -> None:
+    payload = {**GOOD, "spans": ["kill him tomorrow", {"text": "with a gun", "category": "weapons"}]}
+    classifier = IntentClassifier(FakeClient([payload]))
+    classification = asyncio.run(classifier.classify("text", ["Vip Sharma"]))
+
+    assert classification.spans == [
+        {"text": "kill him tomorrow"},
+        {"text": "with a gun", "category": "weapons"},
+    ]
+    detection = classifier.to_detection(classification)
+    assert detection.spans[0]["text"] == "kill him tomorrow"
+
+
 @DB_REQUIRED
 def test_token_budget_is_shared_and_enforced(db_session) -> None:
     day = date(2026, 10, 1)
@@ -143,3 +158,25 @@ def test_token_budget_is_shared_and_enforced(db_session) -> None:
     with pytest.raises(BudgetExhaustedError):
         charge_tokens(db_session, 200, budget=1000, day=day)
     assert tokens_used(db_session, day) == 900
+
+
+@respx.mock
+def test_openai_client_omits_authorization_without_key() -> None:
+    route = respx.post("http://localhost:11434/v1/chat/completions").respond(
+        json={"choices": [{"message": {"content": "{}"}}]}
+    )
+    client = OpenAICompatibleClient(base_url="http://localhost:11434/v1", api_key="", model="aegis-intent")
+
+    assert asyncio.run(client.complete_json("system", "user")) == {}
+    assert "authorization" not in route.calls.last.request.headers
+
+
+@respx.mock
+def test_openai_client_sends_authorization_with_key() -> None:
+    route = respx.post("http://localhost:11434/v1/chat/completions").respond(
+        json={"choices": [{"message": {"content": "{}"}}]}
+    )
+    client = OpenAICompatibleClient(base_url="http://localhost:11434/v1", api_key="secret", model="aegis-intent")
+
+    asyncio.run(client.complete_json("system", "user"))
+    assert route.calls.last.request.headers["authorization"] == "Bearer secret"

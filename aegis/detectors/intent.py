@@ -72,6 +72,21 @@ class IntentClassification(BaseModel):
             raise ValueError(f"solicitation must be one of {SOLICITATION_VALUES}")
         return value
 
+    @field_validator("spans", mode="before")
+    @classmethod
+    def _normalise_spans(cls, value: Any) -> Any:
+        """Accept both span objects and bare fragments from smaller models."""
+
+        if not isinstance(value, list):
+            return value
+        normalised: list[Any] = []
+        for entry in value:
+            if isinstance(entry, str):
+                normalised.append({"text": entry})
+            else:
+                normalised.append(entry)
+        return normalised
+
     @model_validator(mode="after")
     def _validate_probabilities(self) -> IntentClassification:
         for label, probability in self.intent_probs.items():
@@ -201,7 +216,7 @@ class OpenAICompatibleClient:
     ) -> None:
         settings = get_settings()
         self.base_url = (base_url or settings.llm_base_url).rstrip("/")
-        self.api_key = api_key or settings.llm_api_key.get_secret_value()
+        self.api_key = settings.llm_api_key.get_secret_value() if api_key is None else api_key
         self.model_version = model or settings.llm_model or "unknown"
         self.timeout = timeout or settings.llm_timeout_seconds
 
@@ -217,10 +232,11 @@ class OpenAICompatibleClient:
             "temperature": 0,
             "response_format": {"type": "json_object"},
         }
+        headers = {"Authorization": f"Bearer {self.api_key}"} if self.api_key else {}
         async with httpx.AsyncClient(timeout=self.timeout) as client:
             response = await client.post(
                 f"{self.base_url}/chat/completions",
-                headers={"Authorization": f"Bearer {self.api_key}"},
+                headers=headers,
                 json=payload,
             )
             response.raise_for_status()
