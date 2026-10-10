@@ -127,6 +127,10 @@ META_PREFIX = "Post:"
 CODE_FENCE = "```"
 
 
+class DraftingInputError(ValueError):
+    """Raised when the requested drafting languages cannot be used."""
+
+
 def _as_int(value: object) -> int:
     if isinstance(value, bool):
         return int(value)
@@ -253,6 +257,38 @@ def _prompt_variant(rng: random.Random, vip: str, language: str, label: str) -> 
     )
 
 
+def resolve_active_languages(
+    *,
+    models: tuple[str, ...],
+    languages: tuple[str, ...] | None,
+    model_languages: dict[str, tuple[str, ...]] | None = None,
+) -> tuple[str, ...]:
+    """Return the requested languages the selected models may draft.
+
+    Raises DraftingInputError for unknown languages, an empty selection, or when
+    no selected model may draft any requested language, so a bad run fails
+    before the bank or stats change.
+    """
+
+    if languages is None:
+        return LANGUAGES
+    unknown = [language for language in languages if language not in LANGUAGES]
+    if unknown:
+        raise DraftingInputError(f"unknown language(s): {', '.join(unknown)}; valid languages: {', '.join(LANGUAGES)}")
+    if not languages:
+        raise DraftingInputError(f"no languages selected; valid languages: {', '.join(LANGUAGES)}")
+    allowed = model_languages or DEFAULT_MODEL_LANGUAGES
+    selected = {
+        language for language in languages if any(language in allowed.get(model, LANGUAGES) for model in models)
+    }
+    if not selected:
+        mapping = "; ".join(f"{model} drafts {', '.join(allowed.get(model, LANGUAGES))}" for model in models)
+        raise DraftingInputError(
+            f"no selected model may draft {'/'.join(languages)}; allowed model languages: {mapping}"
+        )
+    return tuple(language for language in LANGUAGES if language in selected)
+
+
 async def run_drafting(
     *,
     models: tuple[str, ...],
@@ -268,10 +304,10 @@ async def run_drafting(
 ) -> DraftStats:
     """Draft until each (model, cell) has ``target_per_model`` accepted items."""
 
+    active_languages = resolve_active_languages(models=models, languages=languages, model_languages=model_languages)
+    allowed_languages = model_languages or DEFAULT_MODEL_LANGUAGES
     context: list[BankItem] = load_bank(bank_dir) if bank_dir.exists() else []
     drafts = [item for item in context if item.drafter not in (DRAFTER_HAND, DRAFTER_TEMPLATE)]
-    allowed_languages = model_languages or DEFAULT_MODEL_LANGUAGES
-    active_languages = tuple(lang for lang in LANGUAGES if languages is None or lang in languages)
     stats = DraftStats()
     if stats_path.exists():
         try:

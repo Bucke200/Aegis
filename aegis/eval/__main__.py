@@ -23,6 +23,7 @@ import json
 import re
 import shutil
 import subprocess
+import sys
 import tempfile
 from pathlib import Path
 
@@ -201,22 +202,26 @@ def draft_command(
     stats_out: Path,
     languages: tuple[str, ...] | None = None,
 ) -> int:
-    from aegis.eval.drafting import run_drafting
+    from aegis.eval.drafting import DraftingInputError, run_drafting
 
     model_list = tuple(entry.strip() for entry in models.split(",") if entry.strip())
-    stats = asyncio.run(
-        run_drafting(
-            models=model_list,
-            vip_roster=VIP_ROSTER,
-            bank_dir=bank_dir,
-            stats_path=stats_out,
-            target_per_model=per_model,
-            attempts_per_model=attempts,
-            ollama_url=ollama_url,
-            seed=seed,
-            languages=languages,
+    try:
+        stats = asyncio.run(
+            run_drafting(
+                models=model_list,
+                vip_roster=VIP_ROSTER,
+                bank_dir=bank_dir,
+                stats_path=stats_out,
+                target_per_model=per_model,
+                attempts_per_model=attempts,
+                ollama_url=ollama_url,
+                seed=seed,
+                languages=languages,
+            )
         )
-    )
+    except DraftingInputError as error:
+        print(str(error), file=sys.stderr)
+        return 2
     print(json.dumps(stats.as_dict(), indent=2, ensure_ascii=False))
     return 0
 
@@ -390,7 +395,9 @@ def main(argv: list[str] | None = None) -> int:
         return seed_bank_command(args.out)
     if args.command == "draft":
         languages = (
-            tuple(entry.strip() for entry in args.languages.split(",") if entry.strip()) if args.languages else None
+            tuple(entry.strip() for entry in args.languages.split(",") if entry.strip())
+            if args.languages is not None
+            else None
         )
         return draft_command(
             args.bank_dir,
