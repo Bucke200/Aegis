@@ -23,6 +23,7 @@ import json
 import re
 import shutil
 import subprocess
+import sys
 import tempfile
 from pathlib import Path
 
@@ -81,6 +82,7 @@ def build_parser() -> argparse.ArgumentParser:
     draft_parser = subparsers.add_parser("draft", help="draft bank entries with the candidate models")
     draft_parser.add_argument("--bank-dir", type=Path, default=DEFAULT_BANK_DIR)
     draft_parser.add_argument("--models", default="llama3.2:3b,qwen2.5:3b,gemma3:4b")
+    draft_parser.add_argument("--languages", default=None, help="comma-separated languages to draft")
     draft_parser.add_argument("--per-model", type=int, default=3)
     draft_parser.add_argument("--attempts", type=int, default=6)
     draft_parser.add_argument("--seed", type=int, default=7)
@@ -198,22 +200,28 @@ def draft_command(
     seed: int,
     ollama_url: str,
     stats_out: Path,
+    languages: tuple[str, ...] | None = None,
 ) -> int:
-    from aegis.eval.drafting import run_drafting
+    from aegis.eval.drafting import DraftingInputError, run_drafting
 
     model_list = tuple(entry.strip() for entry in models.split(",") if entry.strip())
-    stats = asyncio.run(
-        run_drafting(
-            models=model_list,
-            vip_roster=VIP_ROSTER,
-            bank_dir=bank_dir,
-            stats_path=stats_out,
-            target_per_model=per_model,
-            attempts_per_model=attempts,
-            ollama_url=ollama_url,
-            seed=seed,
+    try:
+        stats = asyncio.run(
+            run_drafting(
+                models=model_list,
+                vip_roster=VIP_ROSTER,
+                bank_dir=bank_dir,
+                stats_path=stats_out,
+                target_per_model=per_model,
+                attempts_per_model=attempts,
+                ollama_url=ollama_url,
+                seed=seed,
+                languages=languages,
+            )
         )
-    )
+    except DraftingInputError as error:
+        print(str(error), file=sys.stderr)
+        return 2
     print(json.dumps(stats.as_dict(), indent=2, ensure_ascii=False))
     return 0
 
@@ -386,6 +394,11 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "seed-bank":
         return seed_bank_command(args.out)
     if args.command == "draft":
+        languages = (
+            tuple(entry.strip() for entry in args.languages.split(",") if entry.strip())
+            if args.languages is not None
+            else None
+        )
         return draft_command(
             args.bank_dir,
             args.models,
@@ -394,6 +407,7 @@ def main(argv: list[str] | None = None) -> int:
             args.seed,
             args.ollama_url,
             args.stats_out,
+            languages,
         )
     if args.command == "check-bank":
         return check_bank_command(args.bank_dir, args.out)

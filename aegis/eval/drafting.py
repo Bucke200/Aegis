@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import random
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -66,6 +67,19 @@ PERSONAS = (
     "a daily commuter",
     "a first-time voter",
     "a worried parent",
+    "a ride-share driver",
+    "a small farmer",
+    "a night-shift nurse",
+    "a local journalist",
+    "a gig worker",
+    "a temple volunteer",
+    "a coaching-class tutor",
+    "a ration-shop dealer",
+    "a retired soldier",
+    "a school-bus driver",
+    "a tea-stall owner",
+    "a delivery rider",
+    "a housing-society secretary",
 )
 
 PLATFORMS = (
@@ -74,6 +88,9 @@ PLATFORMS = (
     "a comment on Instagram",
     "a Facebook post",
     "a message in a Telegram channel",
+    "a comment on a news page",
+    "a forwarded status message",
+    "a YouTube comment",
 )
 
 TOPICS = (
@@ -84,16 +101,34 @@ TOPICS = (
     "a stadium funding plan",
     "a water shortage",
     "a power-cut schedule",
+    "a metro fare hike",
+    "a hospital staff shortage",
+    "a garbage collection contract",
+    "a liquor licence",
+    "a mining permit",
+    "a toll plaza",
+    "a bus route change",
+    "a mid-day meal contract",
+    "a village road repair",
+    "a pension delay",
+    "cricket team selection",
+    "a film release controversy",
+    "a factory pollution notice",
 )
 
 LENGTHS = (
     "one short sentence",
     "two short sentences",
     "about 25 words",
+    "three short sentences",
 )
 
 META_PREFIX = "Post:"
 CODE_FENCE = "```"
+
+
+class DraftingInputError(ValueError):
+    """Raised when the requested drafting languages cannot be used."""
 
 
 def _as_int(value: object) -> int:
@@ -179,7 +214,8 @@ def clean_draft(text: str) -> str:
         value = value.replace(CODE_FENCE, " ").strip()
     if value.startswith(META_PREFIX):
         value = value[len(META_PREFIX) :].strip()
-    return value.strip().strip('"').strip()
+    value = re.sub(r"\s+", " ", value).strip()
+    return value.strip('"').strip()
 
 
 async def draft_once(
@@ -221,6 +257,38 @@ def _prompt_variant(rng: random.Random, vip: str, language: str, label: str) -> 
     )
 
 
+def resolve_active_languages(
+    *,
+    models: tuple[str, ...],
+    languages: tuple[str, ...] | None,
+    model_languages: dict[str, tuple[str, ...]] | None = None,
+) -> tuple[str, ...]:
+    """Return the requested languages the selected models may draft.
+
+    Raises DraftingInputError for unknown languages, an empty selection, or when
+    no selected model may draft any requested language, so a bad run fails
+    before the bank or stats change.
+    """
+
+    if languages is None:
+        return LANGUAGES
+    unknown = [language for language in languages if language not in LANGUAGES]
+    if unknown:
+        raise DraftingInputError(f"unknown language(s): {', '.join(unknown)}; valid languages: {', '.join(LANGUAGES)}")
+    if not languages:
+        raise DraftingInputError(f"no languages selected; valid languages: {', '.join(LANGUAGES)}")
+    allowed = model_languages or DEFAULT_MODEL_LANGUAGES
+    selected = {
+        language for language in languages if any(language in allowed.get(model, LANGUAGES) for model in models)
+    }
+    if not selected:
+        mapping = "; ".join(f"{model} drafts {', '.join(allowed.get(model, LANGUAGES))}" for model in models)
+        raise DraftingInputError(
+            f"no selected model may draft {'/'.join(languages)}; allowed model languages: {mapping}"
+        )
+    return tuple(language for language in LANGUAGES if language in selected)
+
+
 async def run_drafting(
     *,
     models: tuple[str, ...],
@@ -232,12 +300,14 @@ async def run_drafting(
     ollama_url: str = "http://localhost:11434",
     seed: int = 7,
     model_languages: dict[str, tuple[str, ...]] | None = None,
+    languages: tuple[str, ...] | None = None,
 ) -> DraftStats:
     """Draft until each (model, cell) has ``target_per_model`` accepted items."""
 
+    active_languages = resolve_active_languages(models=models, languages=languages, model_languages=model_languages)
+    allowed_languages = model_languages or DEFAULT_MODEL_LANGUAGES
     context: list[BankItem] = load_bank(bank_dir) if bank_dir.exists() else []
     drafts = [item for item in context if item.drafter not in (DRAFTER_HAND, DRAFTER_TEMPLATE)]
-    allowed_languages = model_languages or DEFAULT_MODEL_LANGUAGES
     stats = DraftStats()
     if stats_path.exists():
         try:
@@ -256,7 +326,7 @@ async def run_drafting(
     async with httpx.AsyncClient(timeout=180.0) as client:
         for model in models:
             model_langs = allowed_languages.get(model, LANGUAGES)
-            for language in LANGUAGES:
+            for language in active_languages:
                 if language not in model_langs:
                     continue
                 names = vip_roster[language]
@@ -322,6 +392,7 @@ async def run_drafting(
                         stats.accepted += 1
                         have += 1
                         stats.record(cell, "accepted")
+                checkpoint()
             checkpoint()
     checkpoint()
     return stats

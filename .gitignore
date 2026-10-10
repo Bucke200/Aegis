@@ -64,6 +64,9 @@ frontend/e2e/.artifacts/
 *.swp
 *.swo
 
+# OpenCode local agent config
+.opencode/agents/
+
 # OS
 .DS_Store
 Thumbs.db
