@@ -74,7 +74,7 @@ Ordering principle: build a thin end-to-end slice first. The slice is replay dat
   - Done when: `make eval` produces a report from the synthetic set and `make eval-gate` fails on a seeded regression and passes otherwise
   - _Requirements: 16.2_
 
-- [ ] 4.3 Build the labelled golden set (starts now; must complete before task 7.2 tunes the calibrator)
+- [x] 4.3 Build the labelled golden set (starts now; must complete before task 7.2 tunes the calibrator)
   - Maintain two sets per `docs/annotation-guidelines.md`: a committed gate set (AI-drafted synthetic candidates, blind-labelled and human-confirmed) for drift detection, and a local reality set of real text (public research datasets, then analyst labels) used later to fit the isotonic calibrator
   - Label blind against the six canonical classes with `python -m aegis.eval {generate,sheet,import,stats,sample,merge}`; the generator's intended class and the human label are recorded independently
   - The second reviewer checks every disagreement, every ambiguous item, and a deterministic 25% sample; track Cohen's kappa (target >= 0.7). The 180-item pilot also produces one written rule per hard boundary (criticism/harassment, harassment/violent threat, incitement/violent threat, quoted or reported threats)

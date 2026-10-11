@@ -1,6 +1,8 @@
 # Phase 1 Plan and Handoff
 
-Status: living document. Last updated 2026-10-08 on branch `phase1-local-verify`.
+Status: living document. Last updated 2026-10-11 on branch `master`. Phase 1 is
+complete (closure note in section 3); the reality set and calibrator fitting
+remain deferred until a real LLM provider is chosen.
 Purpose: carry the Phase 1 decisions, workstreams, and machine setup across the
 Windows-to-WSL migration. The authoritative task list remains `docs/tasks.md`.
 
@@ -125,6 +127,16 @@ passed the redraft acceptance test at 0% unusable.
 
 ### Workstream 3 - Scale to 1,800 and commit the gate set
 
+Status: complete (2026-10-11). The 1,800 candidates were blind-labelled in nine
+200-item sessions; intended-vs-blind Cohen's kappa 0.7606 (0.7386 with
+ambiguous). The reviewer pass covered all 341 disagreements, 43 ambiguous items,
+and a 55-item random slice (439 rows) - every kept label was upheld. Merge wrote
+1,713 items (87 dropped: 44 unusable, 43 ambiguous); a further 193 were dropped
+as unclassifiable by the local intent model (deterministic schema-invalid
+`solicitation` outputs - issue #16), leaving 1,520 intent items (en 561, hi 487,
+hi-Latn 472). Committed to Aegis-data (094d2a2) with the mechanically labelled
+impersonation (90) and leak (90) sets.
+
 - Generate 1,800 balanced candidates; blind-label in <=200-item sessions.
 - Reviewer takes disagreements, ambiguous items, and a 25% random sample;
   adjudicate to `final_label` or discard unusable items.
@@ -138,8 +150,8 @@ passed the redraft acceptance test at 0% unusable.
 
 Status: tooling implemented and merged (PR #4). The Ollama dev path was then
 validated end to end on Windows (section 6), which surfaced two bugs now fixed
-on `phase1-local-verify`. Caches, model choice, and the new baseline still wait
-for the pilot labels; the WSL migration repeats the Ollama build steps.
+on `phase1-local-verify`. Caches, model choice, and the baseline were completed
+on 2026-10-11 (see the status note at the end of this workstream).
 
 - Metrics per section C4: `EvalReport.per_class` carries a per-language
   confusion matrix; the gate still checks only the aggregate table.
@@ -158,6 +170,12 @@ for the pilot labels; the WSL migration repeats the Ollama build steps.
   evidence.
 - Regenerate `data/private/reports/eval/baseline.json`; `make eval` / `make eval-gate`
   exercise it. Mark task 4.3 done; Phase 1 closes here.
+
+Status: complete (2026-10-11). Caches refreshed against the committed gate set
+(llm 1,520 entries, toxicity 1,713); `make eval` / `make eval-gate` exercised:
+`text_intent_llm` precision 0.9545 / recall 0.7384 / f1 0.8327; `text_lexicon`
+0.9173 / 0.4993 / 0.6466; report + baseline committed to Aegis-data (bb791bf).
+Task 4.3 is marked done - Phase 1 closes here.
 
 ## 4. RTX 3050 (4 GB) settings
 
@@ -194,13 +212,20 @@ Windows side (done):
 - [ ] After the WSL smoke test passes, rename `C:\projects\Aegis` to
       `C:\projects\Aegis.old` and delete it a week later.
 
-WSL2 side (pending). Verified 2026-10-08 from the Windows host: Ubuntu-22.04
+WSL2 side (smoke test passed 2026-10-11; the Windows-to-WSL switch is still
+pending). Verified 2026-10-08 from the Windows host: Ubuntu-22.04
 exists but is stopped; `systemd` runs; `/usr/lib/wsl/lib/nvidia-smi` sees the
 3050; no `.wslconfig` exists. Gaps to fix during the migration: no native Node 22
 (`npm` resolves to `/mnt/c/Program Files/nodejs`, which would build Windows
 binaries into `node_modules`), no `ollama`, Python 3.10 (the project needs 3.12),
 `uv` installed for root only, and the `docker` CLI resolves to the Windows Docker
 Desktop exe, so Docker Desktop's WSL integration is not enabled for Ubuntu-22.04.
+
+Smoke test (2026-10-11): `make up` / `make migrate` / `make test` (273 passed, 2
+skipped) / `make integration` (2 passed) / frontend (11 tests + build) / one
+real classification call through the app to `aegis-intent` / dashboard check -
+all green; Docker Desktop WSL integration is enabled; Ollama runs inside the
+distro.
 
 1. `%UserProfile%\.wslconfig`: `memory=10GB`, `swap=4GB`; then `wsl --shutdown`.
 2. Docker Desktop -> Settings -> Resources -> WSL integration -> `Ubuntu-22.04`.
@@ -297,6 +322,11 @@ Bugs found by the live run and fixed (PR `phase1-local-verify`):
   out of the repository until retention and PII handling are documented.
 - Task 6.2's media fork stays in Phase 2; it needs the real media worker (14.1/14.2).
 - The Windows Ollama model and `.env` are throwaway; the WSL migration rebuilds both.
+- The local intent model (`aegis-intent`) rejects its own `solicitation` outputs
+  (deterministic); 193 gate-set items were dropped for this (issue #16), so the
+  committed gate set is 1,520 rather than the 1,800 target. Recovery: fix the
+  schema/prompt contract, re-run `make eval-cache`, restore the dropped items
+  (backed up outside the repo), and refresh the baseline.
 
 ## 8. References
 
