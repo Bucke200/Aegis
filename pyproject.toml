@@ -54,6 +54,8 @@ collectors = [
 analysis = [
     "torch>=2.5,<3",
     "transformers>=4.47,<5",
+    "sentencepiece>=0.2,<1",
+    "protobuf>=7,<8",
     "scikit-learn>=1.6,<2",
     "confusable-homoglyphs>=3.3,<4",
 ]
