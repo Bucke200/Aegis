@@ -116,3 +116,50 @@ def test_cli_run_then_gate(tmp_path: Path) -> None:
     worse = tmp_path / "worse.json"
     worse.write_text(json.dumps(data), encoding="utf-8")
     assert main(["gate", "--baseline", str(report_file), "--report", str(worse)]) == 1
+
+
+def test_cli_cache_exit_code_reflects_llm_failures(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from aegis.eval import __main__ as cli
+    from aegis.eval.caches import RefreshResult
+
+    _write_item(tmp_path / "golden" / "intent" / "en.jsonl")
+    golden = tmp_path / "golden"
+    out_llm = tmp_path / "llm.jsonl"
+    monkeypatch.setattr(cli, "fetch_ollama_digest", lambda url, model: "digest-1")
+
+    async def failing_refresh(items: list[GoldenItem], **kwargs: object) -> RefreshResult:
+        return RefreshResult(cached=1, failed=["a"])
+
+    monkeypatch.setattr(cli, "refresh_llm_cache", failing_refresh)
+    assert main(["cache", "--golden", str(golden), "--llm", "--out-llm", str(out_llm)]) == 1
+    output = capsys.readouterr().out
+    assert "failed 1 (a)" in output
+    assert "incomplete" in output
+
+    async def clean_refresh(items: list[GoldenItem], **kwargs: object) -> RefreshResult:
+        return RefreshResult(cached=1)
+
+    monkeypatch.setattr(cli, "refresh_llm_cache", clean_refresh)
+    assert main(["cache", "--golden", str(golden), "--llm", "--out-llm", str(out_llm)]) == 0
+
+
+def test_cli_cache_exit_code_reflects_toxicity_failures(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from aegis.detectors import toxicity as toxicity_module
+    from aegis.eval import __main__ as cli
+    from aegis.eval.caches import RefreshResult
+
+    _write_item(tmp_path / "golden" / "intent" / "en.jsonl")
+    golden = tmp_path / "golden"
+    out_toxicity = tmp_path / "toxicity.jsonl"
+
+    class FakeScorer:
+        model_version = "fake-toxicity"
+
+    monkeypatch.setattr(toxicity_module, "TransformersToxicityScorer", FakeScorer)
+    monkeypatch.setattr(cli, "refresh_toxicity_cache", lambda items, **kwargs: RefreshResult(failed=["a"]))
+    assert main(["cache", "--golden", str(golden), "--toxicity", "--out-toxicity", str(out_toxicity)]) == 1
+
+    monkeypatch.setattr(cli, "refresh_toxicity_cache", lambda items, **kwargs: RefreshResult(cached=1))
+    assert main(["cache", "--golden", str(golden), "--toxicity", "--out-toxicity", str(out_toxicity)]) == 0

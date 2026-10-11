@@ -299,6 +299,7 @@ def cache_command(
         print("choose --llm and/or --toxicity")
         return 2
     items = load_golden(golden_path)
+    failed = 0
     if llm:
         from aegis.detectors.intent import IntentClassifier, OpenAICompatibleClient
 
@@ -308,7 +309,7 @@ def cache_command(
             api_key="ollama",
             model=model,
         )
-        written = asyncio.run(
+        result = asyncio.run(
             refresh_llm_cache(
                 items,
                 classifier=IntentClassifier(client),
@@ -318,17 +319,22 @@ def cache_command(
                 force=force,
             )
         )
-        print(f"llm cache: wrote {written} entries to {out_llm} (digest {digest[:12]})")
+        print(f"llm cache: {result.summary()} -> {out_llm} (digest {digest[:12]})")
+        failed += len(result.failed)
     if toxicity:
         from aegis.detectors.toxicity import TransformersToxicityScorer
 
-        written = refresh_toxicity_cache(
+        result = refresh_toxicity_cache(
             items,
             scorer=TransformersToxicityScorer(),
             path=out_toxicity,
             force=force,
         )
-        print(f"toxicity cache: wrote {written} entries to {out_toxicity}")
+        print(f"toxicity cache: {result.summary()} -> {out_toxicity}")
+        failed += len(result.failed)
+    if failed:
+        print(f"cache refresh incomplete: {failed} item(s) failed and were left uncached; re-run to retry them")
+        return 1
     return 0
 
 
