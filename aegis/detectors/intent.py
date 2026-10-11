@@ -17,6 +17,7 @@ from pydantic import BaseModel, Field, ValidationError, field_validator, model_v
 
 from aegis.common.config import get_settings
 from aegis.common.models.enums import InputVariant
+from aegis.common.validation import validation_summary
 from aegis.detectors.text import DetectionDraft
 
 INTENT_DETECTOR = "text_intent_llm"
@@ -138,14 +139,15 @@ class IntentClassifier:
 
     async def classify(self, text: str, vip_names: list[str]) -> IntentClassification:
         prompt = self.build_prompt(text, vip_names)
-        last_error: Exception | None = None
+        last_error: ValidationError | None = None
         for _ in range(self.max_attempts):
             payload = await self.client.complete_json(SYSTEM_PROMPT, prompt)
             try:
                 return IntentClassification.model_validate(payload)
             except ValidationError as error:
                 last_error = error
-        raise LLMOutputError(f"model returned invalid classification: {last_error}")
+        detail = validation_summary(last_error) if last_error is not None else "no output"
+        raise LLMOutputError(f"model returned invalid classification: {detail}")
 
     def to_detection(
         self,

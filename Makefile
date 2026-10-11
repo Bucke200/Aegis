@@ -91,7 +91,7 @@ eval-gate:
 	$(PY) -m aegis.eval gate --baseline data/private/reports/eval/baseline.json --report data/private/reports/eval/report.json
 
 eval-cache:
-	$(PY) -m aegis.eval cache --golden data/private/golden --llm --toxicity --model aegis-intent \
+	uv run --group analysis python -m aegis.eval cache --golden data/private/golden --llm --toxicity --model aegis-intent \
 		--out-llm data/private/caches/llm_cache.jsonl --out-toxicity data/private/caches/toxicity_cache.jsonl
 
 benchmark-models:

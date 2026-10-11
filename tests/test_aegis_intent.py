@@ -103,6 +103,13 @@ def test_malformed_twice_raises() -> None:
         asyncio.run(IntentClassifier(FakeClient([{"intent": "bogus"}, {"intent": "bogus"}])).classify("text", []))
 
 
+def test_malformed_output_error_does_not_echo_payload() -> None:
+    secret = "SHOULD-NOT-APPEAR-IN-ERRORS"
+    with pytest.raises(LLMOutputError) as excinfo:
+        asyncio.run(IntentClassifier(FakeClient([{"intent": secret}, {"intent": secret}])).classify("text", []))
+    assert secret not in str(excinfo.value)
+
+
 def test_calibrator_is_applied_to_the_score() -> None:
     outcome = asyncio.run(
         run_stage2(

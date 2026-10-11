@@ -8,9 +8,10 @@ from typing import Any
 
 import pytest
 import respx
+from structlog.testing import capture_logs
 
 from aegis.common.config import Settings
-from aegis.detectors.intent import THREAT_LABELS, IntentClassification, IntentClassifier
+from aegis.detectors.intent import THREAT_LABELS, IntentClassification, IntentClassifier, LLMOutputError
 from aegis.eval.adapters import (
     TEXT_INTENT_DETECTOR,
     TEXT_LEXICON_DETECTOR,
@@ -26,6 +27,7 @@ from aegis.eval.caches import (
     ToxicityCacheEntry,
     fetch_ollama_digest,
     load_llm_cache,
+    load_toxicity_cache,
     refresh_llm_cache,
     refresh_toxicity_cache,
     text_sha256,
@@ -192,7 +194,7 @@ def test_refresh_llm_and_toxicity_caches(tmp_path: Path) -> None:
     items = [_item("a", "one", "criticism"), _item("b", "two", "none")]
     llm_cache = tmp_path / "llm.jsonl"
     classifier = FakeClassifier()
-    written = asyncio.run(
+    result = asyncio.run(
         refresh_llm_cache(
             items,
             classifier=classifier,  # type: ignore[arg-type]
@@ -201,7 +203,9 @@ def test_refresh_llm_and_toxicity_caches(tmp_path: Path) -> None:
             path=llm_cache,
         )
     )
-    assert written == 2
+    assert result.cached == 2
+    assert result.kept == 0
+    assert result.failed == []
     assert classifier.calls == 2
     assert len(load_llm_cache(llm_cache)) == 2
 
@@ -214,12 +218,161 @@ def test_refresh_llm_and_toxicity_caches(tmp_path: Path) -> None:
             path=llm_cache,
         )
     )
-    assert again == 0
+    assert again.cached == 0
+    assert again.kept == 2
+    assert again.failed == []
     assert classifier.calls == 2
 
     toxicity_cache = tmp_path / "toxicity.jsonl"
-    assert refresh_toxicity_cache(items, scorer=FakeScorer(), path=toxicity_cache) == 2
-    assert refresh_toxicity_cache(items, scorer=FakeScorer(), path=toxicity_cache) == 0
+    first = refresh_toxicity_cache(items, scorer=FakeScorer(), path=toxicity_cache)
+    assert first.cached == 2
+    assert first.kept == 0
+    second = refresh_toxicity_cache(items, scorer=FakeScorer(), path=toxicity_cache)
+    assert second.cached == 0
+    assert second.kept == 2
+
+
+def test_refresh_llm_cache_continues_after_item_failures(tmp_path: Path) -> None:
+    class FlakyClassifier:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        async def classify(self, text: str, vip_names: list[str]) -> IntentClassification:
+            self.calls += 1
+            if text == "invalid":
+                raise LLMOutputError("model returned invalid classification")
+            if text == "explode":
+                raise RuntimeError("connection reset")
+            return _classification("criticism", {"criticism": 0.7, "none": 0.3})
+
+    items = [
+        _item("a", "one", "criticism"),
+        _item("b", "invalid", "none"),
+        _item("c", "explode", "criticism"),
+        _item("d", "four", "none"),
+        GoldenItem(id="e", language="en", text="unlabelled", labels={}),
+    ]
+    llm_cache = tmp_path / "llm.jsonl"
+    classifier = FlakyClassifier()
+    result = asyncio.run(
+        refresh_llm_cache(
+            items,
+            classifier=classifier,  # type: ignore[arg-type]
+            model_id="aegis-intent",
+            model_digest="digest-1",
+            path=llm_cache,
+        )
+    )
+    assert result.cached == 2
+    assert result.kept == 0
+    assert result.skipped == 1
+    assert result.failed == ["b", "c"]
+    assert classifier.calls == 4
+    assert len(load_llm_cache(llm_cache)) == 2
+
+    class HealthyClassifier:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        async def classify(self, text: str, vip_names: list[str]) -> IntentClassification:
+            self.calls += 1
+            return _classification("criticism", {"criticism": 0.7, "none": 0.3})
+
+    healthy = HealthyClassifier()
+    retry = asyncio.run(
+        refresh_llm_cache(
+            items,
+            classifier=healthy,  # type: ignore[arg-type]
+            model_id="aegis-intent",
+            model_digest="digest-1",
+            path=llm_cache,
+        )
+    )
+    assert retry.cached == 2
+    assert retry.kept == 2
+    assert retry.skipped == 1
+    assert retry.failed == []
+    assert healthy.calls == 2
+    assert len(load_llm_cache(llm_cache)) == 4
+
+
+def test_refresh_llm_cache_sanitizes_failure_reason(tmp_path: Path) -> None:
+    secret = "SHOULD-NOT-APPEAR-IN-ERRORS"
+
+    class PayloadClassifier:
+        async def classify(self, text: str, vip_names: list[str]) -> IntentClassification:
+            return IntentClassification.model_validate({"intent": secret})
+
+    items = [_item("a", "one", "none")]
+    with capture_logs() as logs:
+        result = asyncio.run(
+            refresh_llm_cache(
+                items,
+                classifier=PayloadClassifier(),  # type: ignore[arg-type]
+                model_id="aegis-intent",
+                model_digest="digest-1",
+                path=tmp_path / "llm.jsonl",
+            )
+        )
+    assert result.failed == ["a"]
+    assert len(logs) == 1
+    assert logs[0]["event"] == "llm_cache_item_failed"
+    assert logs[0]["item_id"] == "a"
+    assert secret not in str(logs[0])
+
+
+def test_refresh_llm_cache_checkpoints_incrementally(tmp_path: Path) -> None:
+    class SnapshotClassifier:
+        def __init__(self, cache: Path) -> None:
+            self.cache = cache
+            self.cache_existed: list[bool] = []
+
+        async def classify(self, text: str, vip_names: list[str]) -> IntentClassification:
+            self.cache_existed.append(self.cache.exists())
+            if text == "bad":
+                raise RuntimeError("boom")
+            return _classification("none", {"none": 1.0})
+
+    items = [_item("a", "one", "none"), _item("b", "bad", "none"), _item("c", "three", "none")]
+    llm_cache = tmp_path / "llm.jsonl"
+    classifier = SnapshotClassifier(llm_cache)
+    result = asyncio.run(
+        refresh_llm_cache(
+            items,
+            classifier=classifier,  # type: ignore[arg-type]
+            model_id="aegis-intent",
+            model_digest="digest-1",
+            path=llm_cache,
+            checkpoint_every=1,
+        )
+    )
+    assert classifier.cache_existed == [False, True, True]
+    assert result.cached == 2
+    assert result.failed == ["b"]
+    assert len(load_llm_cache(llm_cache)) == 2
+
+
+def test_refresh_toxicity_cache_continues_after_item_failure(tmp_path: Path) -> None:
+    class FlakyScorer:
+        model_version = "fake-toxicity"
+
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def score(self, text: str) -> float:
+            self.calls += 1
+            if text == "bad":
+                raise RuntimeError("model crashed")
+            return 0.4
+
+    items = [_item("a", "one", "none"), _item("b", "bad", "none"), _item("c", "three", "none")]
+    toxicity_cache = tmp_path / "toxicity.jsonl"
+    scorer = FlakyScorer()
+    result = refresh_toxicity_cache(items, scorer=scorer, path=toxicity_cache, checkpoint_every=1)
+    assert result.cached == 2
+    assert result.failed == ["b"]
+    assert scorer.calls == 3
+    assert len(load_toxicity_cache(toxicity_cache)) == 2
 
 
 @respx.mock

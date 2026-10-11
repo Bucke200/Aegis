@@ -10,12 +10,18 @@ Refresh (local, once per model or prompt change):
 
     python -m aegis.eval cache --golden data/private/golden --llm --toxicity \
         --model aegis-intent --ollama-url http://localhost:11434
+
+Refresh is fault-tolerant and incremental: a model output that fails to
+validate is logged, counted, and left uncached so a re-run retries it, and the
+cache file is checkpointed every few new entries so an interrupted run keeps
+its progress.
 """
 
 from __future__ import annotations
 
 import hashlib
 from collections.abc import Iterable
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Protocol
@@ -23,11 +29,39 @@ from typing import Any, Protocol
 import httpx
 from pydantic import BaseModel
 
+from aegis.common.logging import get_logger
 from aegis.detectors.intent import PROMPT_VERSION, IntentClassifier
 from aegis.eval.models import GoldenItem, validation_summary
 
 DEFAULT_LLM_CACHE = Path("data/private/caches/llm_cache.jsonl")
 DEFAULT_TOXICITY_CACHE = Path("data/private/caches/toxicity_cache.jsonl")
+CHECKPOINT_EVERY = 10
+
+_log = get_logger(__name__)
+
+
+@dataclass
+class RefreshResult:
+    """Outcome of one cache refresh; ``failed`` holds item ids left uncached."""
+
+    cached: int = 0
+    kept: int = 0
+    skipped: int = 0
+    failed: list[str] = field(default_factory=list)
+
+    def summary(self) -> str:
+        line = f"cached {self.cached}, kept {self.kept}, skipped {self.skipped}, failed {len(self.failed)}"
+        if self.failed:
+            line += f" ({', '.join(self.failed)})"
+        return line
+
+
+def _failure_reason(error: Exception) -> str:
+    """Describe a failure without echoing model payloads or item text."""
+
+    if isinstance(error, ValueError) and callable(getattr(error, "errors", None)):
+        return f"{type(error).__name__}: {validation_summary(error)}"
+    return f"{type(error).__name__}: {error}"
 
 
 class CachedEntry(BaseModel):
@@ -124,19 +158,34 @@ async def refresh_llm_cache(
     path: Path = DEFAULT_LLM_CACHE,
     prompt_version: str = PROMPT_VERSION,
     force: bool = False,
-) -> int:
-    """Classify every labelled item and write entries for missing keys."""
+    checkpoint_every: int = CHECKPOINT_EVERY,
+) -> RefreshResult:
+    """Classify every labelled item and write entries for missing keys.
+
+    Items whose classification fails (invalid model output or an unexpected
+    error) are logged with their id, counted, and skipped, so one bad item
+    cannot abort a long refresh. New entries are checkpointed to ``path`` every
+    ``checkpoint_every`` results and once more at the end.
+    """
 
     entries = {} if force else load_llm_cache(path)
-    written = 0
+    result = RefreshResult()
+    pending_checkpoint = 0
     for item in items:
         if not item.effective_label:
+            result.skipped += 1
             continue
         key = text_sha256(item.text)
         existing = entries.get(key)
         if existing is not None and existing.model_digest == model_digest and existing.prompt_version == prompt_version:
+            result.kept += 1
             continue
-        classification = await classifier.classify(item.text, [])
+        try:
+            classification = await classifier.classify(item.text, [])
+        except Exception as error:
+            result.failed.append(item.id)
+            _log.warning("llm_cache_item_failed", item_id=item.id, error=_failure_reason(error))
+            continue
         entries[key] = LlmCacheEntry(
             text_sha256=key,
             model_id=model_id,
@@ -145,9 +194,13 @@ async def refresh_llm_cache(
             classification=classification.model_dump(),
             created_at=_now(),
         )
-        written += 1
+        result.cached += 1
+        pending_checkpoint += 1
+        if checkpoint_every > 0 and pending_checkpoint >= checkpoint_every:
+            write_entries(entries.values(), path)
+            pending_checkpoint = 0
     write_entries(entries.values(), path)
-    return written
+    return result
 
 
 def refresh_toxicity_cache(
@@ -156,24 +209,43 @@ def refresh_toxicity_cache(
     scorer: ToxicityScorerLike,
     path: Path = DEFAULT_TOXICITY_CACHE,
     force: bool = False,
-) -> int:
-    """Score every labelled item and write entries for missing keys."""
+    checkpoint_every: int = CHECKPOINT_EVERY,
+) -> RefreshResult:
+    """Score every labelled item and write entries for missing keys.
+
+    Individual scoring failures are logged and skipped, and new entries are
+    checkpointed to ``path`` every ``checkpoint_every`` results and at the end,
+    matching the LLM refresh behaviour.
+    """
 
     entries = {} if force else load_toxicity_cache(path)
-    written = 0
+    result = RefreshResult()
+    pending_checkpoint = 0
     for item in items:
         if not item.effective_label:
+            result.skipped += 1
             continue
         key = text_sha256(item.text)
         existing = entries.get(key)
         if existing is not None and existing.model_version == scorer.model_version:
+            result.kept += 1
+            continue
+        try:
+            score = scorer.score(item.text)
+        except Exception as error:
+            result.failed.append(item.id)
+            _log.warning("toxicity_cache_item_failed", item_id=item.id, error=_failure_reason(error))
             continue
         entries[key] = ToxicityCacheEntry(
             text_sha256=key,
             model_version=scorer.model_version,
-            score=round(float(scorer.score(item.text)), 6),
+            score=round(float(score), 6),
             created_at=_now(),
         )
-        written += 1
+        result.cached += 1
+        pending_checkpoint += 1
+        if checkpoint_every > 0 and pending_checkpoint >= checkpoint_every:
+            write_entries(entries.values(), path)
+            pending_checkpoint = 0
     write_entries(entries.values(), path)
-    return written
+    return result
