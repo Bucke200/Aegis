@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import uuid
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -129,20 +130,25 @@ async def test_replay_publishes_in_order() -> None:
     )
     items = generate(config)
 
+    queue_name = f"{ITEMS_RAW}.test.{uuid.uuid4().hex}"
     async with broker_channel(os.environ["AEGIS_TEST_RABBITMQ_URL"]) as channel:
-        queue = await channel.declare_queue(ITEMS_RAW, durable=True, arguments={"x-queue-type": "quorum"})
-        count = await replay_items(
-            items,
-            Producer(channel),
-            schedule=ReplaySchedule([0.0, 0.0, 0.0]),
-        )
-        assert count == 3
-
+        queue = await channel.declare_queue(queue_name, durable=True, arguments={"x-queue-type": "quorum"})
         received = []
-        for _ in range(3):
-            message = await queue.get(fail=False, timeout=5)
-            assert message is not None
-            received.append(json.loads(message.body)["platform_item_id"])
-            await message.ack()
+        try:
+            count = await replay_items(
+                items,
+                Producer(channel),
+                queue_name=queue_name,
+                schedule=ReplaySchedule([0.0, 0.0, 0.0]),
+            )
+            assert count == 3
+
+            for _ in range(3):
+                message = await queue.get(fail=False, timeout=5)
+                assert message is not None
+                received.append(json.loads(message.body)["platform_item_id"])
+                await message.ack()
+        finally:
+            await queue.delete(if_unused=False, if_empty=False)
 
     assert received == [item.platform_item_id for item in items]
