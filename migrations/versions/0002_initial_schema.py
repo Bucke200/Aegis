@@ -638,7 +638,14 @@ _DOWNGRADE: tuple[str, ...] = (
     """DROP TABLE IF EXISTS connector_cursors CASCADE;""",
     """DROP TABLE IF EXISTS alert_rules CASCADE;""",
     """DROP TABLE IF EXISTS accounts CASCADE;""",
-    """DROP ROLE IF EXISTS aegis_app;""",
+    """DO $$
+BEGIN
+    DROP ROLE IF EXISTS aegis_app;
+EXCEPTION
+    WHEN dependent_objects_still_exist THEN
+        RAISE NOTICE 'role aegis_app still has dependencies in another database; leaving it in place';
+END
+$$;""",
 )
 
 
