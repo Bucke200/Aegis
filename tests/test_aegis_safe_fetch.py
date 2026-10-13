@@ -297,7 +297,7 @@ async def test_fetch_through_http_proxy(server: str) -> None:
         return ["93.184.216.34"]
 
     fetcher = SafeFetcher(
-        _test_settings(server),
+        _test_settings(server, capture_egress_proxy=server),
         resolver=resolver,
         allow_cidrs_for_tests=["127.0.0.1/32"],
     )
@@ -307,9 +307,32 @@ async def test_fetch_through_http_proxy(server: str) -> None:
     assert result.peer_ip == "127.0.0.1"
 
 
+async def test_proxy_requires_configuration() -> None:
+    with pytest.raises(FetchError, match="capture_egress_proxy"):
+        await SafeFetcher(Settings()).fetch("http://192.0.2.10/", proxy="http://127.0.0.1:3128")
+
+
+async def test_proxy_must_match_configured_endpoint() -> None:
+    settings = Settings(capture_egress_proxy="http://127.0.0.1:3128")
+    with pytest.raises(FetchError, match="capture_egress_proxy"):
+        await SafeFetcher(settings).fetch("http://192.0.2.10/", proxy="http://127.0.0.1:9999")
+
+
 async def test_proxy_scheme_is_validated() -> None:
     with pytest.raises(FetchError):
         await SafeFetcher(Settings()).fetch("http://192.0.2.10/", proxy="socks5://127.0.0.1:1080")
+
+
+@pytest.mark.parametrize("method", ["GET\r\nX-Evil: 1", "GET POST", ""])
+async def test_rejects_unsafe_methods(method: str) -> None:
+    with pytest.raises(ValueError, match="method"):
+        await SafeFetcher(Settings()).fetch("http://192.0.2.10/", method=method)
+
+
+@pytest.mark.parametrize("accept", ["text/html\r\nX-Evil: 1", "text/\x00html"])
+async def test_rejects_unsafe_accept_headers(accept: str) -> None:
+    with pytest.raises(ValueError, match="accept"):
+        await SafeFetcher(Settings()).fetch("http://192.0.2.10/", accept=accept)
 
 
 def test_fetch_settings_have_safe_defaults() -> None:

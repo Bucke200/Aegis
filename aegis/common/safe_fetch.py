@@ -35,10 +35,11 @@ source-removed checks) goes through :class:`SafeFetcher`, which enforces:
   consumes at least the matching raw input.
 * Connect, read, and total timeouts are all ``fetch_timeout_seconds`` (15 s by
   default).
-* An optional ``proxy`` keeps the capture egress proxy (D-08) usable:
-  destination checks still run first, and the operator-supplied proxy endpoint
-  itself is trusted, so ``FetchResult.peer_ip`` is the proxy's address in that
-  mode.
+* An optional ``proxy`` keeps the capture egress proxy (D-08) usable. It is
+  operator-only: a proxy argument is refused unless it matches the configured
+  ``capture_egress_proxy``, and callers must never pass a user-supplied value.
+  Destination checks still run first; the proxy endpoint itself is trusted, so
+  ``FetchResult.peer_ip`` is the proxy's address in that mode.
 
 The ``allow_cidrs_for_tests`` constructor argument exists only so tests can
 fetch from a local server; it is not reachable from settings, which never
@@ -97,6 +98,18 @@ _IPV4_EMBEDDED_NETWORKS: tuple[_IPNetwork, ...] = tuple(
 )
 
 _NUMERIC_PART = re.compile(r"\A(?:0[xX][0-9a-fA-F]+|[0-9]+)\Z")
+_HTTP_TOKEN = re.compile(r"\A[!#$%&'*+\-.^_`|~0-9A-Za-z]+\Z")
+_HEADER_VALUE = re.compile(r"\A[\x20-\x7e\t]*\Z")
+
+
+def _validate_method(method: str) -> None:
+    if not _HTTP_TOKEN.match(method):
+        raise ValueError("method must be an HTTP token")
+
+
+def _validate_accept(accept: str | None) -> None:
+    if accept is not None and not _HEADER_VALUE.match(accept):
+        raise ValueError("accept must be a header value without control characters")
 
 
 class FetchError(Exception):
@@ -501,14 +514,16 @@ class SafeFetcher:
     ) -> FetchResult:
         """Fetch ``url``, following at most five redirects.
 
-        ``max_bytes`` defaults to ``fetch_max_bytes``; ``proxy`` is an
-        operator-supplied ``http``/``https`` proxy endpoint.
+        ``max_bytes`` defaults to ``fetch_max_bytes``. ``proxy`` is an
+        operator-only ``http``/``https`` proxy endpoint and must match
+        ``capture_egress_proxy``; never pass a user-supplied value.
         """
 
         limit = self._max_bytes if max_bytes is None else max_bytes
         if limit <= 0:
             raise ValueError("max_bytes must be positive")
-        proxy_endpoint = self._parse_proxy(proxy) if proxy else None
+        _validate_method(method)
+        _validate_accept(accept)
         target = self._parse_url(url)
         headers = {
             "user-agent": self._user_agent,
@@ -520,6 +535,7 @@ class SafeFetcher:
             with anyio.fail_after(self._timeout):
                 while True:
                     await self._policy.check(target.raw_host.decode("ascii"), _port_of(target))
+                    proxy_endpoint = self._resolve_proxy(proxy)
                     backend = _PinnedNetworkBackend(
                         self._policy,
                         trusted_endpoint=None if proxy_endpoint is None else (proxy_endpoint.host, proxy_endpoint.port),
@@ -559,7 +575,7 @@ class SafeFetcher:
                         )
         except TimeoutError as exc:
             raise FetchError(f"fetch of {_display(target)} timed out") from exc
-        except (BlockedDestinationError, FetchTooLargeError, TooManyRedirectsError):
+        except FetchError:
             raise
         except httpx.HTTPError as exc:
             raise FetchError(f"fetch of {_display(target)} failed: {exc}") from exc
@@ -596,14 +612,26 @@ class SafeFetcher:
         auth = (url.username, url.password) if (url.username or url.password) else None
         return _ProxyEndpoint(url=core_url, auth=auth, host=host, port=port)
 
+    def _resolve_proxy(self, proxy: str | None) -> _ProxyEndpoint | None:
+        if proxy is None:
+            return None
+        endpoint = self._parse_proxy(proxy)
+        configured = self._settings.capture_egress_proxy
+        if not configured:
+            raise FetchError("a proxy can only be used when capture_egress_proxy is configured")
+        allowed = self._parse_proxy(configured)
+        if (endpoint.url.scheme, endpoint.host, endpoint.port) != (allowed.url.scheme, allowed.host, allowed.port):
+            raise FetchError("proxy must match capture_egress_proxy")
+        return allowed
+
     async def _read_body(self, response: httpx.Response, limit: int) -> bytes:
         chunks: list[bytes] = []
         total = 0
         try:
             async for chunk in response.aiter_bytes():
-                total += len(chunk)
-                if total > limit:
+                if len(chunk) > limit - total:
                     raise FetchTooLargeError(f"response body exceeds {limit} bytes")
+                total += len(chunk)
                 chunks.append(chunk)
         finally:
             await response.aclose()
