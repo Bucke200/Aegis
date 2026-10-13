@@ -46,7 +46,7 @@ Ordering principle: build a thin end-to-end slice first. The slice is replay dat
   - Done when: an evidence object cannot be overwritten or deleted inside its retention period except through the audited retention role
   - _Requirements: 13.3_
 
-- [x] 3. Messaging backbone
+- [ ] 3. Messaging backbone
 - [x] 3.1 Set up RabbitMQ topology and worker base classes
   - Declare quorum queues `items.raw`, `items.normalized`, `media.analyze`, `media.analyzed`, `evidence.capture`, `analysis.account_embedded`; the `events.incidents` and `events.accounts` topic exchanges and the `events.config` fanout exchange (per-instance exclusive queues for cache invalidation plus the shared durable `config.recompute` queue); delayed-retry queues; a DLQ per queue; `items.normalized` is a classic durable queue with `x-max-priority: 2` for manual/incident priority (quorum queues do not support priorities)
   - Implement producer (publisher confirms) and consumer (ack after DB commit, bounded retries with backoff, then DLQ) base classes
@@ -55,11 +55,12 @@ Ordering principle: build a thin end-to-end slice first. The slice is replay dat
   - Done when: killing a worker mid-batch loses no items and creates no duplicates
   - _Requirements: 3.2, 19.3_
 
-- [x] 3.2 Build the transactional outbox and incident events
+- [ ] 3.2 Build the transactional outbox and incident events
   - Write the outbox row in the same transaction as incident and VIP-configuration changes; implement a publisher that routes each committed row by `event_type` to `events.incidents` or `events.config` and marks rows published
   - Tests: a rolled-back transaction publishes nothing; a publisher crash causes no event loss (at-least-once delivery, idempotent consumers)
   - Done when: every committed incident change produces at least one consumable event, and consumers deduplicate by event ID so each change takes effect exactly once
   - _Requirements: 11.1, 14.1_
+  - Note: consumer-side event-ID dedup lands with WP-04.
 
 - [ ] 4. Test data and evaluation harness (build early; everything downstream depends on it)
 - [x] 4.1 Build the replay source and synthetic generator

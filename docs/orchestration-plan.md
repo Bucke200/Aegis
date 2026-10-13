@@ -1,6 +1,6 @@
 # Orchestration Plan: Phase 1 Closure to MVP
 
-Status: proposed, not started. Written 2026-10-12 from a fresh clone of `master`
+Status: in progress. Written 2026-10-12 from a fresh clone of `master`
 at `9250946` ("Mark Phase 1 complete in the docs").
 Audience: an agent orchestrator that hands work packages (WPs) to coding agents,
 and the human owner who approves decisions, credentials, and merges.
