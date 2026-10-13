@@ -41,6 +41,7 @@ dependencies = [
 [project.scripts]
 aegis-api = "aegis.api.main:main"
 aegis-normalizer = "aegis.pipeline.normalizer:main"
+aegis-scheduler = "aegis.common.scheduler:main"
 aegis-worker = "aegis.pipeline.analysis:main"
 aegis-media-worker = "aegis.pipeline.media:main"
 aegis-capture = "aegis.evidence.capture:main"
