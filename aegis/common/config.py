@@ -8,6 +8,8 @@ from typing import Literal
 from pydantic import SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from aegis import __version__
+
 
 class Settings(BaseSettings):
     """Aegis runtime configuration.
@@ -91,6 +93,12 @@ class Settings(BaseSettings):
     slack_webhook_url: str = ""
 
     capture_egress_proxy: str = ""
+
+    fetch_max_bytes: int = 10 * 1024 * 1024
+    fetch_timeout_seconds: float = 15.0
+    fetch_user_agent: str = f"aegis-fetch/{__version__}"
+    fetch_allowed_ports: str = "80,443"
+    fetch_extra_blocked_cidrs: str = ""
 
     @field_validator("telegram_api_id", mode="before")
     @classmethod
