@@ -14,7 +14,9 @@ one codebase, one image per role, deployed with Docker Compose.
 - **Presentation:** a FastAPI REST + WebSocket API, an alerting service
   (email and Slack), and a React dashboard.
 
-The design, requirements, and implementation plan live in `docs/`.
+The design, requirements, and implementation plan live in `docs/`; the
+working plan for the remaining Phase 1 closure-to-MVP work is
+`docs/orchestration-plan.md`.
 
 ## Prerequisites
 
