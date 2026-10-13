@@ -38,6 +38,7 @@ EXPECTED_TABLES = {
     "item_versions",
     "item_vips",
     "items",
+    "job_runs",
     "labels",
     "llm_budget_usage",
     "media",
