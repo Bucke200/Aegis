@@ -3,6 +3,7 @@
 Status: living document. Last updated 2026-10-11 on branch `master`. Phase 1 is
 complete (closure note in section 3); the reality set and calibrator fitting
 remain deferred until a real LLM provider is chosen.
+Remaining work from Phase 1 closure to the MVP is planned in `docs/orchestration-plan.md`.
 Purpose: carry the Phase 1 decisions, workstreams, and machine setup across the
 Windows-to-WSL migration. The authoritative task list remains `docs/tasks.md`.
 
