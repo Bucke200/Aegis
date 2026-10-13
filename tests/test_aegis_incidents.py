@@ -9,8 +9,10 @@ from typing import Any
 
 import pytest
 from sqlalchemy import func, select
+from sqlalchemy.orm import Session
 
 from aegis.collectors.synthetic import SyntheticConfig, generate
+from aegis.common.events import CaptureRequest, CaptureTrigger, IncidentChange, parse_incident_event
 from aegis.common.models.collected import Item
 from aegis.common.models.enums import (
     AliasKind,
@@ -30,7 +32,7 @@ from aegis.pipeline.incidents import (
     upsert_item_incident,
 )
 from aegis.pipeline.normalizer import Normalizer
-from aegis.pipeline.scoring import VipLink, score_item
+from aegis.pipeline.scoring import ScoringResult, VipLink, VipRisk, score_item
 
 DB_REQUIRED = pytest.mark.skipif(
     not os.environ.get("AEGIS_TEST_DATABASE_URL"),
@@ -201,3 +203,151 @@ def test_suppression_rule_prevents_incident_creation(db_session) -> None:
         db_session.execute(select(func.count()).select_from(Incident).where(Incident.item_id == item.id)).scalar_one()
         == 0
     )
+
+
+def _result(vip: VIP, *, risk: float, severity: str, capture_required: bool) -> ScoringResult:
+    return ScoringResult(
+        item_risk=risk,
+        severity=severity,
+        threat_class=True,
+        override=None,
+        explanation="test score",
+        capture_required=capture_required,
+        vips=[VipRisk(vip_id=vip.id, risk=risk, detection_score=risk, clamped=False, override=None)],
+    )
+
+
+def _outbox_counts(session: Session, item_id: uuid.UUID) -> dict[str, int]:
+    rows = session.execute(
+        select(Outbox.event_type, func.count())
+        .where(Outbox.payload["item_id"].astext == str(item_id))
+        .group_by(Outbox.event_type)
+    ).all()
+    return {row[0]: row[1] for row in rows}
+
+
+def _outbox_payloads(session: Session, item_id: uuid.UUID, event_type: str) -> list[dict[str, Any]]:
+    return list(
+        session.execute(
+            select(Outbox.payload)
+            .where(Outbox.event_type == event_type)
+            .where(Outbox.payload["item_id"].astext == str(item_id))
+        ).scalars()
+    )
+
+
+@DB_REQUIRED
+def test_medium_incident_creation_writes_two_outbox_rows(db_session) -> None:
+    vip, item = _setup(db_session, "I will kill him tomorrow")
+    config, scores, _ = _score(db_session, item, vip)
+    result = _result(vip, risk=0.6, severity="medium", capture_required=True)
+
+    build = upsert_item_incident(db_session, item, result, config, detections=scores)
+    db_session.flush()
+
+    assert build.created is True
+    assert build.incident is not None
+    assert _outbox_counts(db_session, item.id) == {"incident.created": 1, "evidence.capture_requested": 1}
+
+    created = parse_incident_event(_outbox_payloads(db_session, item.id, "incident.created")[0])
+    assert created.schema_version == 2
+    assert created.change is IncidentChange.CREATED
+    assert created.incident_id == build.incident.id
+    assert created.severity is Severity.MEDIUM
+    assert created.previous_severity is None
+    assert created.status.value == "new"
+    assert created.vip_ids == [vip.id]
+
+    capture = CaptureRequest.model_validate(_outbox_payloads(db_session, item.id, "evidence.capture_requested")[0])
+    assert capture.trigger is CaptureTrigger.CREATED
+    assert capture.incident_id == build.incident.id
+    assert capture.item_id == item.id
+
+
+@DB_REQUIRED
+def test_rolled_back_incident_creation_writes_no_outbox_rows(db_session, pg_engine) -> None:
+    vip, item = _setup(db_session, "I will kill him tomorrow")
+    config, scores, _ = _score(db_session, item, vip)
+    result = _result(vip, risk=0.6, severity="medium", capture_required=True)
+    item_id = item.id
+
+    upsert_item_incident(db_session, item, result, config, detections=scores)
+    db_session.flush()
+    assert _outbox_counts(db_session, item_id) == {"incident.created": 1, "evidence.capture_requested": 1}
+
+    db_session.rollback()
+
+    with Session(pg_engine) as session:
+        assert _outbox_counts(session, item_id) == {}
+
+
+@DB_REQUIRED
+def test_low_incident_creation_writes_no_capture_request(db_session) -> None:
+    vip, item = _setup(db_session, "I will kill him tomorrow")
+    config, scores, _ = _score(db_session, item, vip)
+    result = _result(vip, risk=0.35, severity="low", capture_required=False)
+
+    build = upsert_item_incident(db_session, item, result, config, detections=scores)
+    db_session.flush()
+
+    assert build.incident is not None
+    assert build.incident.severity is Severity.LOW
+    assert _outbox_counts(db_session, item.id) == {"incident.created": 1}
+
+
+@DB_REQUIRED
+def test_rescore_crossing_capture_severity_upward_writes_one_capture_request(db_session) -> None:
+    vip, item = _setup(db_session, "I will kill him tomorrow")
+    config, scores, _ = _score(db_session, item, vip)
+    low = _result(vip, risk=0.35, severity="low", capture_required=False)
+    medium = _result(vip, risk=0.6, severity="medium", capture_required=True)
+
+    upsert_item_incident(db_session, item, low, config, detections=scores)
+    db_session.flush()
+    assert _outbox_counts(db_session, item.id) == {"incident.created": 1}
+
+    build = upsert_item_incident(db_session, item, medium, config, detections=scores, trigger="rescore")
+    db_session.flush()
+
+    assert build.incident is not None
+    assert build.incident.severity is Severity.MEDIUM
+    assert _outbox_counts(db_session, item.id) == {
+        "incident.created": 1,
+        "incident.updated": 1,
+        "evidence.capture_requested": 1,
+    }
+
+    updated = parse_incident_event(_outbox_payloads(db_session, item.id, "incident.updated")[0])
+    assert updated.change is IncidentChange.RESCORED
+    assert updated.severity is Severity.MEDIUM
+    assert updated.previous_severity is Severity.LOW
+
+    capture = CaptureRequest.model_validate(_outbox_payloads(db_session, item.id, "evidence.capture_requested")[0])
+    assert capture.trigger is CaptureTrigger.RESCORED
+
+
+@DB_REQUIRED
+def test_rescore_within_the_capture_band_writes_no_capture_request(db_session) -> None:
+    vip, item = _setup(db_session, "I will kill him tomorrow")
+    config, scores, _ = _score(db_session, item, vip)
+    medium = _result(vip, risk=0.6, severity="medium", capture_required=True)
+    high = _result(vip, risk=0.8, severity="high", capture_required=True)
+
+    upsert_item_incident(db_session, item, medium, config, detections=scores)
+    db_session.flush()
+    assert _outbox_counts(db_session, item.id) == {"incident.created": 1, "evidence.capture_requested": 1}
+
+    build = upsert_item_incident(db_session, item, high, config, detections=scores, trigger="rescore")
+    db_session.flush()
+
+    assert build.incident is not None
+    assert build.incident.severity is Severity.HIGH
+    assert _outbox_counts(db_session, item.id) == {
+        "incident.created": 1,
+        "incident.updated": 1,
+        "evidence.capture_requested": 1,
+    }
+    updated = parse_incident_event(_outbox_payloads(db_session, item.id, "incident.updated")[0])
+    assert updated.previous_severity is Severity.MEDIUM
+    capture = CaptureRequest.model_validate(_outbox_payloads(db_session, item.id, "evidence.capture_requested")[0])
+    assert capture.trigger is CaptureTrigger.CREATED
