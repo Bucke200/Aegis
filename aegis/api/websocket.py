@@ -4,6 +4,8 @@ The gateway consumes ``events.incidents`` and forwards ``created``, ``updated``
 and ``merged`` events to every connection whose VIP scope intersects the
 event's VIPs. Clients then refetch details over REST, so permission checks stay
 in one place; a reconnect simply refetches since the client's last-seen event.
+Payloads are parsed as version 2 incidents events; a payload that fails
+validation is forwarded unchanged so a legacy producer cannot stop the gateway.
 """
 
 from __future__ import annotations
@@ -17,11 +19,13 @@ from typing import Any
 
 from aio_pika.abc import AbstractChannel, AbstractIncomingMessage
 from fastapi import APIRouter, Depends, Query, WebSocket, WebSocketDisconnect
+from pydantic import ValidationError
 from sqlalchemy.orm import Session
 
 from aegis.api.dependencies import scoped_vip_ids
 from aegis.api.security import ACCESS_TOKEN_TYPE, TokenError, decode_token
 from aegis.common.db import get_session
+from aegis.common.events import parse_incident_event
 from aegis.common.logging import get_logger
 from aegis.common.messaging import broker_channel, decode_message
 from aegis.common.models.ops import User
@@ -145,7 +149,14 @@ async def _handle_message(
 ) -> None:
     event_type = str((message.headers or {}).get("event_type", "incident.updated"))
     async with message.process():
-        await manager.broadcast(event_type, decode_message(message))
+        payload = decode_message(message)
+        try:
+            event = parse_incident_event(payload)
+        except ValidationError:
+            get_logger("ws-gateway").warning("incident_event_invalid", event_type=event_type)
+            await manager.broadcast(event_type, payload)
+            return
+        await manager.broadcast(event_type, event.model_dump(mode="json", by_alias=True))
 
 
 @asynccontextmanager

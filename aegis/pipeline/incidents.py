@@ -1,4 +1,12 @@
-"""Incident building, re-scoring, and suppression checks."""
+"""Incident building, re-scoring, and suppression checks.
+
+Events built here carry ``change=created`` on creation and
+``change=rescored`` on every update, because the caller has just scored or
+re-scored the item. A capture request is enqueued in the same transaction when
+the incident first reaches the capture severity: on creation, and on a re-score
+whose new severity is at or above the capture severity while the old one was
+below it.
+"""
 
 from __future__ import annotations
 
@@ -9,12 +17,13 @@ from typing import Any
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
+from aegis.common.events import CaptureTrigger, IncidentChange, build_capture_request, build_incident_event
 from aegis.common.models.collected import Item
 from aegis.common.models.enums import IncidentEventType, IncidentSubject, Severity
 from aegis.common.models.incidents import Incident, IncidentEvent, IncidentVip
 from aegis.common.models.incidents import ScoringConfig as ScoringConfigRow
 from aegis.common.models.ops import SuppressionRule
-from aegis.common.outbox import INCIDENT_CREATED, INCIDENT_UPDATED, enqueue
+from aegis.common.outbox import EVIDENCE_CAPTURE_REQUESTED, INCIDENT_CREATED, INCIDENT_UPDATED, enqueue
 from aegis.pipeline.scoring import (
     DEFAULT_BANDS,
     INCIDENT_THRESHOLD,
@@ -22,6 +31,7 @@ from aegis.pipeline.scoring import (
     ScoringConfig,
     ScoringResult,
     incident_vip_ids,
+    severity_rank,
     threat_types_for,
 )
 
@@ -130,17 +140,12 @@ def upsert_item_incident(
         session.flush()
         for vip_id in vip_ids:
             session.add(IncidentVip(incident_id=incident.id, vip_id=vip_id))
-        enqueue(
-            session,
-            INCIDENT_CREATED,
-            {
-                "incident_id": str(incident.id),
-                "item_id": str(item.id),
-                "severity": result.severity,
-                "risk_score": result.item_risk,
-                "vip_ids": [str(vip_id) for vip_id in vip_ids],
-            },
-        )
+        session.flush()
+        created_event = build_incident_event(session, incident, IncidentChange.CREATED)
+        enqueue(session, INCIDENT_CREATED, created_event.model_dump(mode="json", by_alias=True))
+        if result.capture_required:
+            capture = build_capture_request(session, incident, CaptureTrigger.CREATED)
+            enqueue(session, EVIDENCE_CAPTURE_REQUESTED, capture.model_dump(mode="json", by_alias=True))
         return IncidentBuild(incident, True, result.capture_required)
 
     old_score = existing.risk_score
@@ -167,17 +172,19 @@ def upsert_item_incident(
                 reason=trigger,
             )
         )
-    enqueue(
+    updated_event = build_incident_event(
         session,
-        INCIDENT_UPDATED,
-        {
-            "incident_id": str(existing.id),
-            "item_id": str(item.id),
-            "severity": existing.severity.value,
-            "risk_score": existing.risk_score,
-            "vip_ids": [str(vip_id) for vip_id in vip_ids],
-        },
+        existing,
+        IncidentChange.RESCORED,
+        previous_severity=old_severity,
     )
+    enqueue(session, INCIDENT_UPDATED, updated_event.model_dump(mode="json", by_alias=True))
+
+    capture_rank = severity_rank(config.capture_severity)
+    if severity_rank(old_severity) < capture_rank <= severity_rank(existing.severity):
+        capture = build_capture_request(session, existing, CaptureTrigger.RESCORED)
+        enqueue(session, EVIDENCE_CAPTURE_REQUESTED, capture.model_dump(mode="json", by_alias=True))
+
     return IncidentBuild(existing, False, result.capture_required, rescored=rescored)
 
 
