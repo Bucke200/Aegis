@@ -119,7 +119,7 @@ plus the dashboard image built from `frontend/Dockerfile`:
 | Target | Contents | Runs |
 |---|---|---|
 | `api` | core only | `aegis-api` |
-| `analysis` | core + collectors + analysis runtime | `aegis-worker`, `aegis-normalizer` |
+| `analysis` | core + collectors + analysis runtime | `aegis-worker`, `aegis-normalizer`, `aegis-scheduler` |
 | `media` | core + vision stack + ffmpeg | `aegis-media-worker` |
 | `capture` | core + Playwright/Chromium | `aegis-capture` |
 | `frontend` | Node build + nginx static `dist/` | dashboard SPA |

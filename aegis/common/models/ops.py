@@ -1,4 +1,4 @@
-"""Evidence, custody, alerting, feedback, access control, and outbox tables."""
+"""Evidence, custody, alerting, feedback, access control, outbox, and scheduler tables."""
 
 from __future__ import annotations
 
@@ -220,3 +220,15 @@ class SavedSearch(Base, UUIDPrimaryKeyMixin, CreatedAtMixin):
     user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     name: Mapped[str] = mapped_column(Text, nullable=False)
     query: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+
+
+class JobRun(Base):
+    __tablename__ = "job_runs"
+    __table_args__ = (CheckConstraint("last_status IN ('ok', 'error', 'timeout')", name="ck_job_runs_last_status"),)
+
+    job: Mapped[str] = mapped_column(Text, primary_key=True)
+    last_started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    last_finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_status: Mapped[str] = mapped_column(Text, nullable=False)
+    last_error: Mapped[str | None] = mapped_column(Text)
+    run_count: Mapped[int] = mapped_column(BigInteger, nullable=False)

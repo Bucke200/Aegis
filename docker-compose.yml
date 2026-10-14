@@ -175,6 +175,22 @@ services:
       minio-init:
         condition: service_completed_successfully
 
+  scheduler:
+    <<: *app-base
+    build:
+      context: .
+      target: analysis
+    image: aegis-analysis
+    container_name: aegis_scheduler
+    command: ["aegis-scheduler"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+
   frontend:
     build:
       context: ./frontend
