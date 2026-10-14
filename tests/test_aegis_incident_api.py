@@ -18,6 +18,7 @@ from aegis.api.security import create_access_token
 from aegis.api.services.users import UserService
 from aegis.collectors.synthetic import SyntheticConfig, generate
 from aegis.common.db import get_session
+from aegis.common.events import IncidentChange, parse_incident_event
 from aegis.common.models.collected import Item
 from aegis.common.models.enums import (
     IncidentEventType,
@@ -394,7 +395,28 @@ def test_assign_note_and_bulk(client: TestClient, context: dict[str, Any], pg_en
         note_rows = session.execute(
             select(func.count()).select_from(IncidentNote).where(IncidentNote.incident_id == uuid.UUID(incident_ids[0]))
         ).scalar_one()
+        payloads = list(
+            session.execute(
+                select(Outbox.payload)
+                .where(Outbox.event_type == "incident.updated")
+                .where(Outbox.payload["incident_id"].astext == incident_ids[0])
+            ).scalars()
+        )
     assert note_rows == 1
+
+    events = [parse_incident_event(payload) for payload in payloads]
+    assert all(event.schema_version == 2 for event in events)
+    assert [event.change for event in events].count(IncidentChange.ASSIGNED) == 1
+    assert [event.change for event in events].count(IncidentChange.NOTE) == 1
+    assert [event.change for event in events].count(IncidentChange.STATUS) == 1
+    assigned_event = next(event for event in events if event.change is IncidentChange.ASSIGNED)
+    assert assigned_event.assignee_id == uuid.UUID(context["user_ids"]["analyst"])
+    assert assigned_event.actor_id == uuid.UUID(context["user_ids"]["lead"])
+    note_event = next(event for event in events if event.change is IncidentChange.NOTE)
+    assert note_event.actor_id == uuid.UUID(context["user_ids"]["analyst"])
+    status_event = next(event for event in events if event.change is IncidentChange.STATUS)
+    assert status_event.actor_id == uuid.UUID(context["user_ids"]["lead"])
+    assert status_event.status.value == "under_review"
 
 
 @DB_REQUIRED

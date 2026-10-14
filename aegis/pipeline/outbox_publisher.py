@@ -3,6 +3,10 @@
 At-least-once: a row is marked published only after its message is confirmed,
 so a crash between publish and mark causes a duplicate, never a loss. Consumers
 deduplicate on the event id carried in the message id.
+
+Capture requests route through the default (nameless) exchange, which delivers
+straight to the queue named by the routing key, so the capture queue is declared
+before the first capture message is published.
 """
 
 from __future__ import annotations
@@ -11,17 +15,17 @@ import argparse
 import asyncio
 import uuid
 from collections.abc import Sequence
-from typing import Any
+from typing import Any, cast
 
-from aio_pika.abc import AbstractChannel
+from aio_pika.abc import AbstractChannel, AbstractExchange
 from sqlalchemy import func, select, update
 
 from aegis.common.db import session_scope
 from aegis.common.logging import configure_logging, get_logger
-from aegis.common.messaging import Producer, broker_channel
+from aegis.common.messaging import Producer, broker_channel, default_exchange
 from aegis.common.models.ops import Outbox
 from aegis.common.outbox import route_for
-from aegis.common.topology import EVENTS_CONFIG, EVENTS_INCIDENTS
+from aegis.common.topology import EVENTS_CONFIG, EVENTS_INCIDENTS, EVIDENCE_CAPTURE, work_queue_arguments
 
 BATCH_SIZE = 100
 DEFAULT_INTERVAL_SECONDS = 2.0
@@ -64,14 +68,26 @@ async def publish_once(channel: AbstractChannel, limit: int = BATCH_SIZE) -> int
 
     incidents = await channel.declare_exchange(EVENTS_INCIDENTS, "topic", durable=True)
     config = await channel.declare_exchange(EVENTS_CONFIG, "fanout", durable=True)
-    exchanges = {EVENTS_INCIDENTS: incidents, EVENTS_CONFIG: config}
+    exchanges: dict[str, AbstractExchange] = {EVENTS_INCIDENTS: incidents, EVENTS_CONFIG: config}
 
     producer = Producer(channel)
     published: list[str] = []
+    capture_queue_declared = False
     for event_id, event_type, payload in rows:
         exchange_name, routing_key = route_for(event_type)
+        if exchange_name == "":
+            if not capture_queue_declared:
+                await channel.declare_queue(
+                    EVIDENCE_CAPTURE,
+                    durable=True,
+                    arguments=cast(Any, work_queue_arguments(EVIDENCE_CAPTURE)),
+                )
+                capture_queue_declared = True
+            exchange = default_exchange(channel)
+        else:
+            exchange = exchanges[exchange_name]
         await producer.publish(
-            exchanges[exchange_name],
+            exchange,
             routing_key,
             payload,
             headers={"event_id": event_id, "event_type": event_type},

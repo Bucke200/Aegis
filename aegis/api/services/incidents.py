@@ -13,6 +13,7 @@ from sqlalchemy import case, literal, or_, select, tuple_
 from sqlalchemy.orm import Session
 
 from aegis.api.dependencies import scoped_vip_ids
+from aegis.common.events import IncidentChange, build_incident_event
 from aegis.common.models.collected import Account, Item
 from aegis.common.models.enums import (
     IncidentEventType,
@@ -328,7 +329,7 @@ class IncidentService:
                     label=LabelKind.FALSE_POSITIVE,
                 )
             )
-        self._publish_update(incident)
+        self._publish_update(incident, IncidentChange.STATUS, actor_id=user.id)
         return incident
 
     def assign(self, user: User, incident_id: uuid.UUID, assignee_id: uuid.UUID) -> Incident:
@@ -348,7 +349,7 @@ class IncidentService:
                 to_value={"assignee_id": str(assignee_id)},
             )
         )
-        self._publish_update(incident)
+        self._publish_update(incident, IncidentChange.ASSIGNED, actor_id=user.id, assignee_id=assignee_id)
         return incident
 
     def add_note(self, user: User, incident_id: uuid.UUID, body: str) -> IncidentNote:
@@ -364,6 +365,7 @@ class IncidentService:
                 to_value={"note_id": str(note.id)},
             )
         )
+        self._publish_update(incident, IncidentChange.NOTE, actor_id=user.id)
         return note
 
     def bulk_transition(
@@ -394,21 +396,22 @@ class IncidentService:
                 errors.append(f"{incident_id}: {error}")
         return applied, errors
 
-    def _publish_update(self, incident: Incident) -> None:
-        vip_ids = list(
-            self.session.execute(select(IncidentVip.vip_id).where(IncidentVip.incident_id == incident.id)).scalars()
-        )
-        enqueue(
+    def _publish_update(
+        self,
+        incident: Incident,
+        change: IncidentChange,
+        *,
+        actor_id: uuid.UUID | None = None,
+        assignee_id: uuid.UUID | None = None,
+    ) -> None:
+        event = build_incident_event(
             self.session,
-            INCIDENT_UPDATED,
-            {
-                "incident_id": str(incident.id),
-                "severity": incident.severity.value,
-                "status": incident.status.value,
-                "risk_score": incident.risk_score,
-                "vip_ids": [str(vip_id) for vip_id in vip_ids],
-            },
+            incident,
+            change,
+            actor_id=actor_id,
+            assignee_id=assignee_id,
         )
+        enqueue(self.session, INCIDENT_UPDATED, event.model_dump(mode="json", by_alias=True))
 
 
 def _encode_cursor(sort: str, rank: int, created_at: datetime, incident_id: uuid.UUID) -> str:
